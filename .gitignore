@@ -1,2 +1,11 @@
-__pycache__/
+*__pycache__/
 *.tar.gz
+*.egg-info/
+
+*.txt
+
+build/
+
+*.err
+*.out
+submission_files/
