@@ -7,11 +7,28 @@
   <br><br>
 </div>
 
-
 The Balloon Learning Environment (BLE) is a simulator for stratospheric
 balloons. It is designed as a benchmark environment for deep reinforcement
 learning algorithms, and is a followup to the Nature paper
 ["Autonomous navigation of stratospheric balloons using reinforcement learning"](https://www.nature.com/articles/s41586-020-2939-8).
+
+
+## g2 Installation
+
+```
+conda create --name ble python=3.9
+conda activate ble
+pip install -f https://storage.googleapis.com/jax-releases/jax_releases.html jaxlib==0.3.0
+pip install -f https://storage.googleapis.com/jax-releases/jax_releases.html jax==0.3.0
+pip install setuptools==65.5.0
+pip install pip==23.2
+curl -O https://files.pythonhosted.org/packages/4b/48/920cea66177b865663fde5a9390a59de0ef3b642ad98106ac1d8717d7005/gym-0.21.0.tar.gz 
+pip install gym-0.21.0.tar.gz
+pip install -r requirements.txt
+```
+
+Make sure to use the updated readme that has jax==0.3.0, jaxlib==0.3.0, gym==0.21.0 commented out. PyPi no longer has these versions of JAX and for some reason pip attempts to install a newer version of gym, so these instructions install the right version in the folder.
+
 
 ## Getting Started
 
