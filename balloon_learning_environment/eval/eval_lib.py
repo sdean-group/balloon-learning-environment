@@ -157,6 +157,7 @@ def eval_agent(agent: base_agent.Agent,
 
     env.seed(seed)
     observation = env.reset()
+    agent.update_forecast(env.get_wind_forecast())
     action = agent.begin_episode(observation)
 
     step_count = 0

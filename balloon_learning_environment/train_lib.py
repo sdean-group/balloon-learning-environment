@@ -45,6 +45,7 @@ def _run_one_episode(env: balloon_env.BalloonEnv,
   """Runs an agent in an environment for one episode."""
   dispatcher.begin_episode()
   obs = env.reset()
+  agent.update_forecast(env.get_wind_forecast())
   # Request first action from agent.
   a = agent.begin_episode(obs)
   terminal = False

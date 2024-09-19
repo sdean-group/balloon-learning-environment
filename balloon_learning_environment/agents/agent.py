@@ -19,6 +19,7 @@
 import abc
 import enum
 from typing import Optional, Sequence, Union
+from balloon_learning_environment.env.wind_field import WindField
 
 from flax.metrics import tensorboard
 import numpy as np
@@ -144,6 +145,13 @@ class Agent(abc.ABC):
     """
     del checkpoint_dir
     return -1
+
+  def update_forecast(self, forecast: WindField):
+    """"
+    If an agent wants to use the forecast, it can use this method to store it.
+    
+    This is called everytime a new forecast is generated (e.g. reset)
+    """
 
 
 class RandomAgent(Agent):

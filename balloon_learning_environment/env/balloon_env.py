@@ -106,6 +106,9 @@ def perciatelli_reward_function(
 class BalloonEnv(gym.Env):
   """Balloon Learning Environment."""
 
+  def get_wind_forecast(self): 
+    return self.arena._wind_field
+
   def __init__(
       self,
       *,  # All arguments after this are keyword-only.
@@ -212,6 +215,7 @@ class BalloonEnv(gym.Env):
 
     self._rng, arena_rng = jax.random.split(self._rng)
     observation = self.arena.reset(arena_rng)
+    
 
     if self._renderer is not None:
       self._renderer.reset()

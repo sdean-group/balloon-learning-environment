@@ -23,6 +23,7 @@ from typing import Iterable, Optional, Text, Union
 from balloon_learning_environment.env import simulator_data
 from balloon_learning_environment.env.rendering import renderer
 from flax.metrics import tensorboard
+import matplotlib
 from matplotlib import dates as mdates
 from matplotlib import gridspec
 import matplotlib.pyplot as plt
@@ -30,6 +31,7 @@ from mpl_toolkits import mplot3d  # pylint: disable=unused-import
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from mpl_toolkits.mplot3d import art3d
 import numpy as np
+matplotlib.use('TkAgg')
 
 
 class MatplotlibRenderer(renderer.Renderer):
