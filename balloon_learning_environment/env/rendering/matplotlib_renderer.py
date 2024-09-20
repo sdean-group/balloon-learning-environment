@@ -31,7 +31,6 @@ from mpl_toolkits import mplot3d  # pylint: disable=unused-import
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from mpl_toolkits.mplot3d import art3d
 import numpy as np
-matplotlib.use('TkAgg')
 
 
 class MatplotlibRenderer(renderer.Renderer):

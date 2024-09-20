@@ -25,12 +25,13 @@ from absl import app
 from absl import flags
 from balloon_learning_environment.env import balloon_env  # pylint: disable=unused-import
 from balloon_learning_environment.env.rendering import matplotlib_renderer
+from balloon_learning_environment.env import features
 from balloon_learning_environment.eval import eval_lib
 from balloon_learning_environment.eval import suites
 from balloon_learning_environment.utils import run_helpers
 import gym
 
-
+flags.DEFINE_string('feature_constructor', 'perciatelli', 'perciatelli or mpc')
 flags.DEFINE_string('agent', 'dqn', 'The name of the agent to create.')
 flags.DEFINE_enum('suite', 'big_eval',
                   suites.available_suites(),
@@ -71,6 +72,11 @@ _RENDERERS = {
     'matplotlib': matplotlib_renderer.MatplotlibRenderer,
 }
 
+_FEATURE_CONSTRUCTORS = {
+  'perciatelli': features.PerciatelliFeatureConstructor,
+  'mpc': features.MPCFeatures
+}
+
 
 def write_result(result: Sequence[eval_lib.EvaluationResult]) -> None:
   """Writes an evaluation result as a json file."""
@@ -108,10 +114,12 @@ def main(argv: Sequence[str]) -> None:
   if FLAGS.renderer is not None:
     renderer = _RENDERERS[FLAGS.renderer]()
 
+  fc_factory = _FEATURE_CONSTRUCTORS[FLAGS.feature_constructor]
   wf_factory = run_helpers.get_wind_field_factory(FLAGS.wind_field)
   env = gym.make('BalloonLearningEnvironment-v0',
                  wind_field_factory=wf_factory,
-                 renderer=renderer)
+                 renderer=renderer,
+                 feature_constructor_factory=fc_factory)
 
   agent = run_helpers.create_agent(
       FLAGS.agent,

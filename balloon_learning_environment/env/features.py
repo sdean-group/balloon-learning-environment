@@ -53,6 +53,71 @@ import numpy as np
 TOLERANCE = units.Distance(meters=1e-5)
 
 
+
+class FeatureConstructor(abc.ABC):
+  """An interface for constructing features from the Balloon Arena.
+
+  A feature constructor takes a forecast and multiple observations and
+  constructs a feature vector as a numpy array.
+
+  This interface requires an observe function since since the
+  feature construction may require state tracking e.g. when using a
+  Gaussian Process over the observed winds.
+  """
+
+  # TODO(joshgreaves): Is it ok to pass the atmosphere here?
+  # This is the atmosphere we are flying with, so should we have a noisy
+  # observation instead?
+  @abc.abstractmethod
+  def __init__(self,
+               forecast: wind_field.WindField,
+               atmosphere: standard_atmosphere.Atmosphere) -> None:
+    """The FeatureConstructor constructor.
+
+    The constructor of each child class should follow this function signature.
+
+    Args:
+      forecast: A forecast for the current arena.
+      atmosphere: The current atmospheric conditions.
+    """
+
+  @abc.abstractmethod
+  def observe(self, observation: simulator_data.SimulatorObservation) -> None:
+    """Observes all sensor readings at the next timestep from the simulator."""
+
+  @abc.abstractmethod
+  def get_features(self) -> np.ndarray:
+    """Gets the current feature vector given all observations."""
+
+  @property
+  @abc.abstractmethod
+  def observation_space(self) -> gym.Space:
+    """Gets the observation space specification for the feature vector."""
+
+class MPCFeatures:
+  """
+  [ x y ]
+
+  TODO: implement guassian process maybe?
+  """
+  def __init__(self,
+               forecast: wind_field.WindField,
+               atmosphere: standard_atmosphere.Atmosphere) -> None:
+    self.observation = None
+
+  def observe(self, observation: simulator_data.SimulatorObservation) -> None:
+    self.observation = observation
+  
+  def get_features(self) -> np.ndarray:
+    return np.array([ self.observation.balloon_observation.x, self.observation.balloon_observation.y ])
+
+  @property
+  def observation_space(self) -> gym.Space:
+    lo = np.full((2, ), -np.inf)
+    hi = np.full((2, ), +np.inf)
+
+    return gym.spaces.Box(low=lo, high=hi)
+  
 def compute_solar_angle(balloon_state: balloon.BalloonState) -> float:
   """Computes the solar angle relative to the balloon's position.
 
@@ -102,48 +167,6 @@ def compute_sunrise_time(balloon_state: balloon.BalloonState) -> float:
     # Proportion of time from sunset to sunrise.
     return math.pi + math.pi * (current_time - sunset) / (sunrise - sunset)
 
-
-class FeatureConstructor(abc.ABC):
-  """An interface for constructing features from the Balloon Arena.
-
-  A feature constructor takes a forecast and multiple observations and
-  constructs a feature vector as a numpy array.
-
-  This interface requires an observe function since since the
-  feature construction may require state tracking e.g. when using a
-  Gaussian Process over the observed winds.
-  """
-
-  # TODO(joshgreaves): Is it ok to pass the atmosphere here?
-  # This is the atmosphere we are flying with, so should we have a noisy
-  # observation instead?
-  @abc.abstractmethod
-  def __init__(self,
-               forecast: wind_field.WindField,
-               atmosphere: standard_atmosphere.Atmosphere) -> None:
-    """The FeatureConstructor constructor.
-
-    The constructor of each child class should follow this function signature.
-
-    Args:
-      forecast: A forecast for the current arena.
-      atmosphere: The current atmospheric conditions.
-    """
-
-  @abc.abstractmethod
-  def observe(self, observation: simulator_data.SimulatorObservation) -> None:
-    """Observes all sensor readings at the next timestep from the simulator."""
-
-  @abc.abstractmethod
-  def get_features(self) -> np.ndarray:
-    """Gets the current feature vector given all observations."""
-
-  @property
-  @abc.abstractmethod
-  def observation_space(self) -> gym.Space:
-    """Gets the observation space specification for the feature vector."""
-
-
 @dataclasses.dataclass
 class PerciatelliWindFeature:
   """Encodes the triple of characteristics for the wind at a given pressure."""
@@ -158,7 +181,6 @@ class PerciatelliWindFeature:
     return (self.magnitude != 1.0 or
             self.bearing != 1.0 or
             self.uncertainty != 0.0)
-
 
 class NamedPerciatelliFeatures:
   """A helper class for parsing Perciatelli feature vectors.
