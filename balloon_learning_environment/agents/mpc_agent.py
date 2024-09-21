@@ -103,6 +103,31 @@ def convert_plan_to_actions(plan, observation, i):
 #  UP = 2
 
 # Idea: use observations to improve forecast (like perciatelli feature uses WindGP)
+# TODO: use atmopshere class to do conversions between altitude and pressure
+
+def cost(plan, observation, forecast, atmosphere, stride):
+    vlim = 1.7
+    t_i, x_i, y_i, p_i = observation
+    cost = 0.0
+    for a_target in plan: # target pressure
+        wind_vector = forecast.get_forecast(x_i, y_i, p_i, t_i)
+        
+        x_i += wind_vector.u * stride
+        y_i += wind_vector.v * stride
+
+
+        p_target = atmosphere.at_height(units.Distance(km=a_target)).pressure
+        if p_i > p_target:
+            a_i = atmosphere.at_pressure(p_i).height.km
+            
+            if abs(a_target-a_i) > vlim / 3600.0 * stride.seconds:
+                a_i += vlim / 3600.0 * stride.seconds * np.sign(a_target-a_i)
+            else:
+                a_i = a_target
+            p_i = atmosphere.at_height(a_i).pressure
+
+        cost += -(x_i.meters)**2# + (y_i.meters**2)
+    return cost
 
 class MPCAgent(agent.Agent):
     """An agent that takes uniform random actions."""
@@ -119,6 +144,11 @@ class MPCAgent(agent.Agent):
         self.integration_time_step = 3*60
 
     def begin_episode(self, observation: np.ndarray) -> int:
+        # Failed scipy attempt
+        # initial_plan = np.full((self.plan_size, ), 5.0)
+        # self.plan = minimize(cost, initial_plan, args=(observation, self.forecast, self.atmosphere, dt.timedelta(minutes=3)))
+        # print(self.plan)
+        
         x = observation[1].km
         y = observation[2].km
         pressure = observation[3]
