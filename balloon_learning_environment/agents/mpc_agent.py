@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import datetime as dt
 from atmosnav import *
 import atmosnav as atm
+from scipy.optimize import minimize
 
 class DeterministicAltitudeModel(Dynamics):
 
@@ -111,7 +112,8 @@ def cost(plan, observation, forecast, atmosphere, stride):
     cost = 0.0
     for a_target in plan: # target pressure
         wind_vector = forecast.get_forecast(x_i, y_i, p_i, t_i)
-        
+        # print(wind_vector)
+
         x_i += wind_vector.u * stride
         y_i += wind_vector.v * stride
 
@@ -125,6 +127,8 @@ def cost(plan, observation, forecast, atmosphere, stride):
             else:
                 a_i = a_target
             p_i = atmosphere.at_height(a_i).pressure
+        
+        t_i += stride
 
         cost += -(x_i.meters)**2# + (y_i.meters**2)
     return cost
@@ -149,16 +153,16 @@ class MPCAgent(agent.Agent):
         # self.plan = minimize(cost, initial_plan, args=(observation, self.forecast, self.atmosphere, dt.timedelta(minutes=3)))
         # print(self.plan)
         
-        x = observation[1].km
-        y = observation[2].km
-        pressure = observation[3]
-        t = observation[0].seconds
+        # x = observation[1].km
+        # y = observation[2].km
+        # pressure = observation[3]
+        # t = observation[0].seconds
 
         # t, x, y, pressure = observation
-        balloon = make_weather_balloon(x, y, pressure, t)
-        self.plan = make_plan(5000, 1000, balloon, self.forecast)
-        self.i += 1
-        return self.plan[0]
+        # balloon = make_weather_balloon(x, y, pressure, t)
+        # self.plan = make_plan(5000, 1000, balloon, self.forecast)
+        # self.i += 1
+        return 0# self.plan[0]
 
     def step(self, reward: float, observation: np.ndarray) -> int:
         # t, x, y, pressure = observation
