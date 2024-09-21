@@ -51,12 +51,22 @@ class WindVector(NamedTuple):
     return f'({self.u}, {self.v})'
 
 
+class JaxWindField(abc.ABC):
+  """ simplified wind class for jax environments (e.g. gradient of a function that reads wind data) """
+
+  @abc.abstractmethod
+  def get_forecast(self, x: float, y: float, pressure: float, elapsed_time: float):
+    """ one wind forecast please """
+
 @gin.configurable
 class WindField(abc.ABC):
   """Abstract class for point-based lookups in a wind field."""
 
   def __init__(self):
     self._noise_model = SimplexWindNoise()
+
+  def to_jax_wind_field(self):
+    raise NotImplementedError('no conversion to jax wind field')
 
   @abc.abstractmethod
   def reset_forecast(self, key: jnp.ndarray, date_time: dt.datetime) -> None:

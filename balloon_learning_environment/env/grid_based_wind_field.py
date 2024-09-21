@@ -26,8 +26,16 @@ import numpy as np
 import scipy.interpolate
 
 
+class JaxGridBasedWindField(wind_field.JaxWindField):
+
+  def __init__(self,):
+    super(JaxGridBasedWindField, self).__init__()
+
 class GridBasedWindField(wind_field.WindField):
   """A wind field that interpolates from a grid."""
+
+  def to_jax_wind_field(self):
+    return 
 
   def __init__(
       self,

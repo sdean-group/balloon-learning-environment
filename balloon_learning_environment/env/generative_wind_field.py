@@ -36,7 +36,7 @@ def generative_wind_field_factory() -> grid_based_wind_field.GridBasedWindField:
   """A convenience function for creating a generative wind field."""
   return grid_based_wind_field.GridBasedWindField(GenerativeWindFieldSampler())
 
-
+# TODO: If this doesn't work with JAX, need a JaxGridWindFieldSampler to go along with JaxWindField 
 class GenerativeWindFieldSampler(grid_wind_field_sampler.GridWindFieldSampler):
   """A class that samples wind fields from a VAE."""
 

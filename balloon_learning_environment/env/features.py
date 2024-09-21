@@ -96,7 +96,7 @@ class FeatureConstructor(abc.ABC):
 
 class MPCFeatures:
   """
-  [ x y ]
+  [ elapsed_time x y pressure ]
 
   TODO: implement guassian process maybe?
   """
@@ -109,7 +109,11 @@ class MPCFeatures:
     self.observation = observation
   
   def get_features(self) -> np.ndarray:
-    return np.array([ self.observation.balloon_observation.x, self.observation.balloon_observation.y ])
+    return np.array([ 
+      self.observation.balloon_observation.time_elapsed, 
+      self.observation.balloon_observation.x, 
+      self.observation.balloon_observation.y,
+      self.observation.balloon_observation.pressure ])
 
   @property
   def observation_space(self) -> gym.Space:
