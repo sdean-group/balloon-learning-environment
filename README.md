@@ -71,6 +71,12 @@ $ pip install --upgrade pip
 $ pip install .[acme]
 ```
 
+## Evaluate MPC Agent
+
+```
+python -m balloon_learning_environment.eval.eval   --agent=mpc --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=mpc
+```
+
 ## Ensure the BLE is Using Your GPU/TPU
 
 The BLE contains a VAE for generating winds, which you will probably want
