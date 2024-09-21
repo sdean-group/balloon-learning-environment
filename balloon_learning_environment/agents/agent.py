@@ -20,7 +20,7 @@ import abc
 import enum
 from typing import Optional, Sequence, Union
 from balloon_learning_environment.env.wind_field import WindField
-
+from balloon_learning_environment.env.balloon import standard_atmosphere
 from flax.metrics import tensorboard
 import numpy as np
 
@@ -152,6 +152,15 @@ class Agent(abc.ABC):
     
     This is called everytime a new forecast is generated (e.g. reset)
     """
+
+
+  def update_atmosphere(self, atmosphere: standard_atmosphere.Atmosphere):
+    """"
+    If an agent wants to use the atmosphere, it can use this method to store it.
+    
+    This is called everytime a new atmospheree is generated (e.g. reset)
+    """
+
 
 
 class RandomAgent(Agent):

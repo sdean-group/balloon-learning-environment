@@ -110,8 +110,9 @@ class MPCAgent(agent.Agent):
     def __init__(self, num_actions: int, observation_shape: Sequence[int]):
         super(MPCAgent, self).__init__(num_actions, observation_shape)
         self.forecast = None
-
-        #self.plan = [ np.random.randint(0, 3) for _ in range(50) ]
+        self.atmosphere = None
+        
+        self.plan_size = 50
         self.plan = None
         self.i = 0
         self.waypoint_time_step = 3*60
@@ -138,8 +139,12 @@ class MPCAgent(agent.Agent):
     def end_episode(self, reward: float, terminal: bool = True) -> None:
         self.i = 0 
 
-    def update_forecast(self, forecast: agent.WindField):
+    def update_forecast(self, forecast: agent.WindField): 
         self.forecast = forecast
+
+    def update_atmosphere(self, atmosphere: agent.standard_atmosphere.Atmosphere): 
+        self.atmosphere = atmosphere
+
 
     # def _check_forecast_present(self):
 

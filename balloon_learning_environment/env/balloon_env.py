@@ -109,6 +109,9 @@ class BalloonEnv(gym.Env):
   def get_wind_forecast(self): 
     return self.arena._wind_field
 
+  def get_atmosphere(self): 
+    return self.arena._atmosphere
+
   def __init__(
       self,
       *,  # All arguments after this are keyword-only.
