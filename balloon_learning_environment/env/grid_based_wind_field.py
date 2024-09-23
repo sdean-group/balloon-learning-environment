@@ -21,21 +21,74 @@ from typing import List, Sequence, Union
 from balloon_learning_environment.env import grid_wind_field_sampler
 from balloon_learning_environment.env import wind_field
 from balloon_learning_environment.utils import units
+import jax
 from jax import numpy as jnp
 import numpy as np
 import scipy.interpolate
+from atmosnav import JaxTree
 
 
-class JaxGridBasedWindField(wind_field.JaxWindField):
+class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
 
-  def __init__(self,):
+  def __init__(self, field_shape, field):
     super(JaxGridBasedWindField, self).__init__()
+    self.field_shape = field_shape
+    self.field = field 
+
+    self._grid = (
+        self.field_shape.latlng_grid_points(),    # Lats.
+        self.field_shape.latlng_grid_points(),    # Lngs.
+        self.field_shape.pressure_grid_points(),  # Pressures.
+        self.field_shape.time_grid_points())      # Times.
+    
+  def get_forecast(self, x: float, y: float, pressure: float,
+                   elapsed_time: float) -> jnp.ndarray:
+    """
+    x,y are km
+    pressure is pascals (Pa)
+    elapsed_time is seconds
+    """
+    point = self._prepare_get_forecast_inputs(x, y, pressure, elapsed_time)
+    interp = jax.scipy.interpolate.RegularGridInterpolator(self._grid, self.field, fill_value=True)
+    uv = interp(point)
+    return uv[0] # uv[0][0] is lat mps for wind, uv[0][1] is lon mps
+
+  def _boomerang(self, t, max_val):
+    cycle_direction = (t // max_val) % 2
+    remainder = t % max_val
+
+    # Use lax.cond to handle the conditional direction.
+    return jax.lax.cond(cycle_direction == 0, lambda op: op[0], lambda op: op[1] - op[0], operand=(remainder, max_val))
+
+  def _prepare_get_forecast_inputs(self, x: float, y: float, pressure: float, elapsed_time: float) -> jnp.ndarray:
+    x = jnp.clip(x, -self.field_shape.latlng_displacement_km, self.field_shape.latlng_displacement_km)
+    y = jnp.clip(y, -self.field_shape.latlng_displacement_km, self.field_shape.latlng_displacement_km)
+    pressure = jnp.clip(pressure, self.field_shape.min_pressure_pa, self.field_shape.max_pressure_pa)
+
+    elapsed_hours = elapsed_time / 3600.0
+    time_field_position = jax.lax.cond(
+      elapsed_hours < self.field_shape.time_horizon_hours,
+      lambda op: op[0],
+      lambda op: self._boomerang(op[0], op[1]),
+      operand=(elapsed_hours, self.field_shape.time_horizon_hours))
+
+    return jnp.array([ x, y, pressure, time_field_position ])
+  
+  def tree_flatten(self):
+    return (self.field_shape, self.field), {}
+
+  @classmethod
+  def tree_unflatten(cls, aux_data, children): 
+    return JaxGridBasedWindField(*children)
+
+  
+
 
 class GridBasedWindField(wind_field.WindField):
   """A wind field that interpolates from a grid."""
 
-  # def to_jax_wind_field(self):
-  #   return 
+  def to_jax_wind_field(self):
+    return JaxGridBasedWindField(self.field_shape, self.field)
 
   def __init__(
       self,
