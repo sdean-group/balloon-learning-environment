@@ -1,6 +1,7 @@
 from balloon_learning_environment.agents import agent
 from balloon_learning_environment.models import models
 from balloon_learning_environment.utils import units
+from atmosnav import JaxTree
 import numpy as np
 from typing import Optional, Sequence, Union
 import jax.numpy as jnp
@@ -8,6 +9,21 @@ import datetime as dt
 from atmosnav import *
 import atmosnav as atm
 from scipy.optimize import minimize
+
+class DeltaTime(JaxTree):
+    def __init__(self, seconds):
+        self.seconds = seconds
+
+    def total_seconds(self):
+        return self.seconds
+
+    def tree_flatten(self):
+        return (self.seconds, ), {}
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children): 
+        return DeltaTime(seconds=children[0])
+
 
 class DeterministicAltitudeModel(Dynamics):
 
@@ -50,12 +66,13 @@ def cost_at(balloon, plan, wind):
 
         # if x < 0: x = -x
 
-        # x=units.Distance(m=x)
-        # y=units.Distance(m=y)
-        # pressure = atm.utils.alt2p(altitude)
+        x=units.Distance(m=x)
+        y=units.Distance(m=y)
+        pressure = atm.utils.alt2p(altitude)
         # elapsed_time = dt.timedelta(seconds=elapsed_time)
+        elapsed_time = DeltaTime(seconds=elapsed_time)
 
-        # wind_vector = wind.get_forecast(x, y, pressure, elapsed_time)
+        wind_vector = wind.get_forecast(x, y, pressure, elapsed_time)
 
         next_balloon, _ = balloon.step(elapsed_time, plan, jnp.array([ wind_vector.u, wind_vector.v ]))
 
@@ -133,6 +150,9 @@ def cost(plan, observation, forecast, atmosphere, stride):
         cost += -(x_i.meters)**2# + (y_i.meters**2)
     return cost
 
+
+    
+
 class MPCAgent(agent.Agent):
     """An agent that takes uniform random actions."""
 
@@ -153,19 +173,21 @@ class MPCAgent(agent.Agent):
         # self.plan = minimize(cost, initial_plan, args=(observation, self.forecast, self.atmosphere, dt.timedelta(minutes=3)))
         # print(self.plan)
         
-        # x = observation[1].km
-        # y = observation[2].km
-        # pressure = observation[3]
-        # t = observation[0].seconds
+        # atmosnav optimizer:
+        x = observation[1].km
+        y = observation[2].km
+        pressure = observation[3]
+        t = observation[0].seconds
 
         # t, x, y, pressure = observation
-        # balloon = make_weather_balloon(x, y, pressure, t)
-        # self.plan = make_plan(5000, 1000, balloon, self.forecast)
-        # self.i += 1
-        return 0# self.plan[0]
+        balloon = make_weather_balloon(x, y, pressure, t)
+        self.plan = make_plan(5000, 1000, balloon, self.forecast)
+        self.i += 1
+        return self.plan[0]
 
     def step(self, reward: float, observation: np.ndarray) -> int:
         # t, x, y, pressure = observation
+
         action = self.plan[self.i%len(self.plan)]
         self.i += 1
         return action

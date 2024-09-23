@@ -24,7 +24,8 @@ _METERS_PER_FOOT = 0.3048
 
 from atmosnav import JaxTree
 
-class Distance:#(JaxTree):
+# class Distance:
+class Distance(JaxTree):
   """A compact distance unit."""
 
   def __init__(self,
@@ -38,12 +39,12 @@ class Distance:#(JaxTree):
     self._distance = (
         m + meters + (km + kilometers) * 1000.0 + feet * _METERS_PER_FOOT)
 
-  # def tree_flatten(self):
-  #   return (self._distance, ), {}
+  def tree_flatten(self):
+    return (self._distance, ), {}
 
-  # @classmethod
-  # def tree_unflatten(cls, aux_data, children): 
-  #   return Distance(meters=children[0])
+  @classmethod
+  def tree_unflatten(cls, aux_data, children): 
+    return Distance(meters=children[0])
 
   @property
   def m(self) -> float:

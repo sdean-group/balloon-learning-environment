@@ -34,8 +34,8 @@ class JaxGridBasedWindField(wind_field.JaxWindField):
 class GridBasedWindField(wind_field.WindField):
   """A wind field that interpolates from a grid."""
 
-  def to_jax_wind_field(self):
-    return 
+  # def to_jax_wind_field(self):
+  #   return 
 
   def __init__(
       self,
