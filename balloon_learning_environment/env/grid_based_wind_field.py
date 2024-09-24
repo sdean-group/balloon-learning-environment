@@ -26,6 +26,7 @@ from jax import numpy as jnp
 import numpy as np
 import scipy.interpolate
 from atmosnav import JaxTree
+from memory_profiler import profile
 
 
 class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
@@ -41,6 +42,7 @@ class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
         self.field_shape.pressure_grid_points(),  # Pressures.
         self.field_shape.time_grid_points())      # Times.
     
+  @profile
   def get_forecast(self, x: float, y: float, pressure: float,
                    elapsed_time: float) -> jnp.ndarray:
     """
@@ -60,6 +62,7 @@ class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
     # Use lax.cond to handle the conditional direction.
     return jax.lax.cond(cycle_direction == 0, lambda op: op[0], lambda op: op[1] - op[0], operand=(remainder, max_val))
 
+  @profile
   def _prepare_get_forecast_inputs(self, x: float, y: float, pressure: float, elapsed_time: float) -> jnp.ndarray:
     x = jnp.clip(x, -self.field_shape.latlng_displacement_km, self.field_shape.latlng_displacement_km)
     y = jnp.clip(y, -self.field_shape.latlng_displacement_km, self.field_shape.latlng_displacement_km)
@@ -88,7 +91,7 @@ class GridBasedWindField(wind_field.WindField):
   """A wind field that interpolates from a grid."""
 
   def to_jax_wind_field(self):
-    return JaxGridBasedWindField(self.field_shape, self.field)
+    return JaxGridBasedWindField(self.field_shape, self.jax_field)
 
   def __init__(
       self,
@@ -100,8 +103,10 @@ class GridBasedWindField(wind_field.WindField):
     """
     super(GridBasedWindField, self).__init__()
     self._wind_field_sampler = wind_field_sampler
+    self._jax_wind_field_sampler = wind_field_sampler.to_jax_grid_wind_field_sampler()
     self.field_shape = self._wind_field_sampler.field_shape
     self.field = None  # Will be initialized with reset_forecast.
+    self.jax_field = None
 
     # NOTE(scandido): We convert the field from a jax.numpy arrays to a numpy
     # arrays here, otherwise it'll be converted on the fly every time we
@@ -126,6 +131,7 @@ class GridBasedWindField(wind_field.WindField):
       date_time: An instance of a datetime object, representing the start
           of the wind field.
     """
+    self.jax_field = self._jax_wind_field_sampler.sample_field(key, date_time)
     self.field = self._wind_field_sampler.sample_field(key, date_time)
 
   def get_forecast(self, x: units.Distance, y: units.Distance, pressure: float,

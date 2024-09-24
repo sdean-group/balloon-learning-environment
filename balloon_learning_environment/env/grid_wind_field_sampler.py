@@ -21,9 +21,30 @@ import datetime as dt
 from balloon_learning_environment.generative import vae
 from jax import numpy as jnp
 import numpy as np
+from atmosnav import JaxTree
+
+class JaxGridFieldWindSampler(JaxTree):
+  @property
+  def field_shape(self) -> vae.FieldShape:
+    """Gets the field shape of wind fields sampled by this class."""
+
+  @abc.abstractmethod
+  def sample_field(self,
+                   key: jnp.ndarray,
+                   date_time: float) -> jnp.ndarray:
+    """Samples a wind field and returns it as a numpy array.
+
+    Args:
+      key: A PRNGKey to use for sampling.
+      date_time: The date_time of the begining on the wind field.
+    """
 
 
 class GridWindFieldSampler(abc.ABC):
+
+  def to_jax_grid_wind_field_sampler(self):
+    """ makes a jax compatible version """
+    raise RuntimeError('no jax version exists')
 
   @property
   @abc.abstractmethod

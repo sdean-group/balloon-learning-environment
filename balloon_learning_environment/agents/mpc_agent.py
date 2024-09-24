@@ -1,3 +1,4 @@
+from memory_profiler import profile
 from balloon_learning_environment.agents import agent
 from balloon_learning_environment.models import models
 from balloon_learning_environment.utils import units
@@ -31,10 +32,12 @@ class DeterministicAltitudeModel(Dynamics):
         self.dt = integration_time_step
         self.vlim = 1.7
 
+    @profile
     def control_input_to_delta_state(self, time: jnp.float32, state: Array, control_input: Array, wind_vector: Array):
         h = self.update(state, control_input[0])
         return jnp.array([ wind_vector[0], wind_vector[1], h - state[2], 0.0]), self
     
+    @profile
     def update(self, state, waypoint):
         return jax.lax.cond(jnp.abs(waypoint-state[2]) > self.vlim / 3600.0 * self.dt,
                         lambda op: op[0][2] + self.vlim / 3600.0 * self.dt * jnp.sign(op[1]-op[0][2]),
@@ -50,6 +53,7 @@ class DeterministicAltitudeModel(Dynamics):
     def tree_unflatten(cls, aux_data, children):
         return DeterministicAltitudeModel(aux_data['dt'])
 
+@profile
 def make_weather_balloon(init_lat, init_lon, init_pressure, start_time):
     return Airborne(
         jnp.array([ init_lat, init_lon, atm.utils.p2alt(init_pressure), 0.0 ]),
@@ -57,6 +61,7 @@ def make_weather_balloon(init_lat, init_lon, init_pressure, start_time):
         PlanToWaypointController(start_time=start_time, waypoint_time_step=3*60),
         DeterministicAltitudeModel(integration_time_step=3*60))
 
+@profile
 def cost_at(start_time, dt, balloon, plan, wind):
     # jax.debug.print("{start_time}, {balloon}, {plan}, {wind}", start_time=start_time, balloon=balloon, plan=plan, wind=wind)
     N = ((len(plan)-1))
@@ -72,9 +77,11 @@ def cost_at(start_time, dt, balloon, plan, wind):
     _, final_balloon = jax.lax.fori_loop(0, N, inner_run, init_val=(start_time, balloon))
     return final_balloon.state[0]**2 + final_balloon.state[1]**2.
 
+# gradient_at = jax.jit(jax.grad(cost_at, argnums=3))
 gradient_at = jax.grad(cost_at, argnums=3)
 
 # Plan helper functions
+@profile
 def make_plan(start_time, dt, num_plans, num_steps, balloon, wind):
         
     plans = [jnp.zeros((num_steps, 1))]
@@ -95,7 +102,9 @@ def make_plan(start_time, dt, num_plans, num_steps, balloon, wind):
     plan = plans[best_plan]
     return jnp.array(plan)
 
+@profile
 def convert_plan_to_actions(plan, observation, i):
+    i %= len(plan)
     _, _, _, pressure = observation
     if plan[i] > pressure:
         return 2
@@ -114,6 +123,7 @@ def convert_plan_to_actions(plan, observation, i):
 # Idea: use observations to improve forecast (like perciatelli feature uses WindGP)
 # TODO: use atmopshere class to do conversions between altitude and pressure
 
+@profile
 def cost(plan, observation, forecast, atmosphere, stride):
     vlim = 1.7
     t_i, x_i, y_i, p_i = observation
@@ -158,6 +168,7 @@ class MPCAgent(agent.Agent):
         self.waypoint_time_step = 3*60
         self.integration_time_step = 3*60
 
+    @profile
     def begin_episode(self, observation: np.ndarray) -> int:
         # Failed scipy attempt
         # initial_plan = np.full((self.plan_size, ), 5.0)
@@ -172,23 +183,27 @@ class MPCAgent(agent.Agent):
 
         # t, x, y, pressure = observation
         balloon = make_weather_balloon(x, y, pressure, t)
-        self.plan = make_plan(t, self.integration_time_step, 5000, 1000, balloon, self.forecast)
+        self.plan = make_plan(t, self.integration_time_step, 1, 1000, balloon, self.forecast)
+        action = convert_plan_to_actions(self.plan, observation, self.i)
         self.i += 1
-        return self.plan[0]
+        return action
 
+    @profile
     def step(self, reward: float, observation: np.ndarray) -> int:
         # t, x, y, pressure = observation
 
-        action = self.plan[self.i%len(self.plan)]
+        action = convert_plan_to_actions(self.plan, observation, self.i)
         self.i += 1
         return action
  
     def end_episode(self, reward: float, terminal: bool = True) -> None:
         self.i = 0 
 
+    @profile
     def update_forecast(self, forecast: agent.WindField): 
         self.forecast = forecast.to_jax_wind_field()
 
+    @profile
     def update_atmosphere(self, atmosphere: agent.standard_atmosphere.Atmosphere): 
         self.atmosphere = atmosphere
 
