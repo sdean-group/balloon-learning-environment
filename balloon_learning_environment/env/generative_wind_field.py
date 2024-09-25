@@ -42,7 +42,7 @@ class JaxGenerativeWindFieldSampler(grid_wind_field_sampler.JaxGridFieldWindSamp
   def __init__(self, params):
     self.params = params
   
-  @profile
+  #@profile
   def sample_field(self, key: jnp.ndarray, date_time: dt.datetime) -> jnp.ndarray:
     latents = jax.random.normal(key, shape=(64,))
     decoder = vae.Decoder()

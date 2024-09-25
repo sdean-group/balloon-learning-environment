@@ -30,7 +30,7 @@ from balloon_learning_environment.utils import units
 import gin
 import jax
 from jax import numpy as jnp
-
+from atmosnav import *
 
 # WindVector contains the following elements:
 #   u: Wind magnitude along the x axis in meters per second.
@@ -50,8 +50,7 @@ class WindVector(NamedTuple):
   def __str__(self) -> str:
     return f'({self.u}, {self.v})'
 
-
-class JaxWindField(abc.ABC):
+class JaxWindField(JaxTree):
   """ simplified wind class for jax environments (e.g. gradient of a function that reads wind data) """
 
   @abc.abstractmethod

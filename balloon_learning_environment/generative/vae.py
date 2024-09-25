@@ -21,10 +21,35 @@ from typing import NamedTuple, Tuple
 from flax import linen as nn
 import jax
 import jax.numpy as jnp
+from atmosnav import *
 
 
 @dataclasses.dataclass
-class FieldShape:
+class FieldShape(JaxTree):
+  def tree_flatten(self):
+    # children = (self.latlng_slices,
+    #   self.flow_field_width,
+    #   self.pressure_slices,
+    #   self.time_slices,
+    #   self.latlng_displacement_km,
+    #   self.max_pressure_pa,
+    #   self.min_pressure_pa,
+    #   self.time_horizon_hours,)  # arrays / dynamic values
+    children = tuple()
+    aux_data = {"latlng_slices": self.latlng_slices,
+"flow_field_width": self.flow_field_width,
+"pressure_slices": self.pressure_slices,
+"time_slices": self.time_slices,
+"latlng_displacement_km": self.latlng_displacement_km,
+"max_pressure_pa": self.max_pressure_pa,
+"min_pressure_pa": self.min_pressure_pa,
+"time_horizon_hours": self.time_horizon_hours}  # static values
+    return children, aux_data
+
+  @classmethod
+  def tree_unflatten(cls, aux_data, children):
+    return FieldShape(**aux_data)
+
   """Class to parameterize the shape of the VAE field."""
 
   latlng_slices: int = 21

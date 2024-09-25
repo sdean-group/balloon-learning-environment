@@ -42,7 +42,7 @@ class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
         self.field_shape.pressure_grid_points(),  # Pressures.
         self.field_shape.time_grid_points())      # Times.
     
-  @profile
+  #@profile
   def get_forecast(self, x: float, y: float, pressure: float,
                    elapsed_time: float) -> jnp.ndarray:
     """
@@ -62,7 +62,7 @@ class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
     # Use lax.cond to handle the conditional direction.
     return jax.lax.cond(cycle_direction == 0, lambda op: op[0], lambda op: op[1] - op[0], operand=(remainder, max_val))
 
-  @profile
+  #@profile
   def _prepare_get_forecast_inputs(self, x: float, y: float, pressure: float, elapsed_time: float) -> jnp.ndarray:
     x = jnp.clip(x, -self.field_shape.latlng_displacement_km, self.field_shape.latlng_displacement_km)
     y = jnp.clip(y, -self.field_shape.latlng_displacement_km, self.field_shape.latlng_displacement_km)
