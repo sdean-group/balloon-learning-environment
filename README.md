@@ -25,6 +25,7 @@ pip install -f https://storage.googleapis.com/jax-releases/jax_releases.html jax
 pip install -f https://storage.googleapis.com/jax-releases/jax_releases.html jax==0.3.0
 pip install setuptools==65.5.0
 pip install pip==23.2
+pip install wheel==0.38.0
 curl -O https://files.pythonhosted.org/packages/4b/48/920cea66177b865663fde5a9390a59de0ef3b642ad98106ac1d8717d7005/gym-0.21.0.tar.gz 
 pip install gym-0.21.0.tar.gz
 pip install -r requirements.txt

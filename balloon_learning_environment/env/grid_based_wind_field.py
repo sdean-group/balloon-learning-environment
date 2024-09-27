@@ -26,7 +26,7 @@ from jax import numpy as jnp
 import numpy as np
 import scipy.interpolate
 from atmosnav import JaxTree
-from memory_profiler import profile
+# from memory_profiler import profile
 
 
 class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):

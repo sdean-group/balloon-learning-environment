@@ -1,4 +1,4 @@
-from memory_profiler import profile
+# from memory_profiler import profile
 from balloon_learning_environment.agents import agent
 from balloon_learning_environment.env.wind_field import JaxWindField
 from balloon_learning_environment.models import models

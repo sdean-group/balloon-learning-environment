@@ -15,7 +15,7 @@
 
 """A wind field created by a generative model."""
 
-from memory_profiler import profile
+# # from memory_profiler import profile
 import datetime as dt
 from typing import List, Sequence, Union
 
