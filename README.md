@@ -33,6 +33,24 @@ pip install --no-deps -e ../atmosnav
 
 Make sure to use the updated readme that has jax==0.3.0, jaxlib==0.3.0, gym==0.21.0 commented out. PyPi no longer has these versions of JAX and for some reason pip attempts to install a newer version of gym, so these instructions install the right version in the folder.
 
+## Setting up g2 jupyter notebook
+First, add the following line to the end of `./bashrc`\
+`export PATH=/share/apps/anaconda3/2021.05/bin:$PATH`
+
+Then, on local machine, type: (can also be -01, -02, or -05)\
+`ssh netid@g2-login-05.coecis.cornell.edu -L PORT:NODE:PORT`\
+where PORT is a random integer between 8000 and 10000 and NODE is selected from {dean-cpu-01 or dean-compute-01}
+
+Then, on g2 login node, type the following and replace NODE with the NODE you selected above:\
+`srun -p default_partition --pty --mem=2000 --nodelist=NODE /bin/bash`
+
+On g2 node after you login (which directly follows the step above), type the line below and replace "use_your_netid" with your NetID.\
+`XDG_RUNTIME_DIR=/tmp/use_your_netid jupyter-notebook --ip=0.0.0.0 --port=PORT`
+
+Finaly, find a line similar to the string below on your g2 terminal print-out:\
+`http://127.0.0.1:PORT/?token=LONG_ALPHANUMERIC_STRING_FROM_JUPYTER-NOTEBOOK_OUTPUT`
+
+Copy `127.0.0.1:PORT` with `PORT` replaced and paste it on your local browser. Use the string after `token` as your "login password".
 
 ## Getting Started
 
