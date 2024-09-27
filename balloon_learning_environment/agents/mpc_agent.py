@@ -74,7 +74,7 @@ def cost_at(start_time, dt, balloon, plan, wind):
 
         distance = jnp.hypot(x, y)
         within_radius = distance <= 50
-        cost+= jax.lax.cond(within_radius, lambda _: 1.0, lambda op: 0.4 * jnp.exp(-0.69314718056 / 100  * (op- 50)), operand=distance)
+        # cost+= jax.lax.cond(within_radius, lambda _: 1.0, lambda op: 0.4 * jnp.exp(-0.69314718056 / 100  * (op- 50)), operand=distance)
         # cost += within_radius * 1 + (not within_radius) * (0.4 * 2**(distance - 50))
 
         pressure = atm.utils.alt2p(altitude)
@@ -84,7 +84,8 @@ def cost_at(start_time, dt, balloon, plan, wind):
 
     _, final_balloon, cost = jax.lax.fori_loop(0, N, inner_run, init_val=(start_time, balloon, cost))
     # cost += terminal_cost
-    return cost
+
+    return -(final_balloon.state[0]**2 + final_balloon.state[1]**2)
 
 gradient_at = jax.jit(jax.grad(cost_at, argnums=3))
 # gradient_at = jax.grad(cost_at, argnums=3)
@@ -113,15 +114,17 @@ def make_plan(start_time, dt, num_plans, num_steps, balloon, wind):
     return jnp.array(plan)
 
 #@profile
-def convert_plan_to_actions(plan, observation, i):
+def convert_plan_to_actions(plan, observation, i, atmosphere):
     i %= len(plan)
     _, _, _, pressure = observation
-    if plan[i] > pressure:
-        return 2
-    elif plan[i] < pressure: 
-        return 0
-    else:
-        return 1
+    height = atmosphere.at_pressure(pressure).height.km
+    if abs(height - plan[i]) < 0.5:
+        return 1 #STAY
+
+    if height < plan[i]:
+        return 2 # UP
+    
+    return 0
 
 
 
@@ -186,21 +189,23 @@ class MPCAgent(agent.Agent):
         # print(self.plan)
         
         # atmosnav optimizer:
-        x = observation[1].km
-        y = observation[2].km
-        pressure = observation[3]
-        t = observation[0].seconds
+        # x = observation[1].km
+        # y = observation[2].km
+        # pressure = observation[3]
+        # t = observation[0].seconds
 
-        # t, x, y, pressure = observation
-        balloon = make_weather_balloon(x, y, pressure, t)
-        self.plan = make_plan(t, self.integration_time_step, 10, 1000, balloon, self.forecast)
-        for i in range(10):
-            # start_time, dt, balloon, plan, wind
-            dplan = gradient_at(t, self.integration_time_step, balloon, self.plan, self.forecast)
-            print(dplan)
-            self.plan += dplan / np.linalg.norm(dplan)
-        print(self.plan[self.i])
-        action = convert_plan_to_actions(self.plan, observation, self.i)
+        # # # t, x, y, pressure = observation
+        # balloon = make_weather_balloon(x, y, pressure, t)
+        # self.plan = make_plan(t, self.integration_time_step, 10, 1000, balloon, self.forecast)
+        # for i in range(10):
+        #     # start_time, dt, balloon, plan, wind
+        #     dplan = gradient_at(t, self.integration_time_step, balloon, self.plan, self.forecast)
+        #     # print(dplan)
+        #     self.plan += dplan / (np.linalg.norm(dplan) + 0.01)
+        # # print(self.plan[self.i])
+        # action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
+        # self.i+=1
+        action = 0
         return action
 
     #@profile
@@ -218,8 +223,9 @@ class MPCAgent(agent.Agent):
         #     print(dplan)
         #     self.plan += dplan / (np.linalg.norm(dplan) + 0.1)
         
-        action = convert_plan_to_actions(self.plan, observation, self.i)
-        self.i += 1
+        # action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
+        # self.i += 1
+        action = 0
         return action
  
     def end_episode(self, reward: float, terminal: bool = True) -> None:
