@@ -47,11 +47,13 @@ Then, on local machine, type: (can also be -01, -02, or -05)\
 where PORT is a random integer between 8000 and 10000 and NODE is selected from {dean-cpu-01 or dean-compute-01}
 
 Then, on g2 login node, type the following and replace NODE with the NODE you selected above:\
-`srun -p default_partition --pty --mem=2000 --nodelist=NODE /bin/bash`
+```
+conda activate ble # on login server
+srun -p default_partition --pty --mem=2000 --nodelist=NODE /bin/bash
+```
 
 On g2 node after you login (which directly follows the step above), type the line below and replace "use_your_netid" with your NetID.\
 ```
-conda activate ble
 XDG_RUNTIME_DIR=/tmp/use_your_netid jupyter-notebook --ip=0.0.0.0 --port=PORT
 ```
 
