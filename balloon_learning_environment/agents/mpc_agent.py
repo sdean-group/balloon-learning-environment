@@ -57,14 +57,12 @@ class DeterministicAltitudeModel(Dynamics):
 def make_weather_balloon(init_lat, init_lon, init_pressure, start_time):
     return Airborne(
         jnp.array([ init_lat, init_lon, atm.utils.p2alt(init_pressure), 0.0 ]),
-        # [ init_lat, init_lon, atm.utils.p2alt(init_pressure), 0.0 ],
         PlanToWaypointController(start_time=start_time, waypoint_time_step=3*60),
         DeterministicAltitudeModel(integration_time_step=3*60))
 
 #@profile
 @jax.jit
 def cost_at(start_time, dt, balloon, plan, wind):
-    # jax.debug.print("{start_time}, {balloon}, {plan}, {wind}", start_time=start_time, balloon=balloon, plan=plan, wind=wind)
     N = ((len(plan)-1))
     cost = 0.0
     def inner_run(i, time_balloon_cost):
@@ -85,7 +83,7 @@ def cost_at(start_time, dt, balloon, plan, wind):
     _, final_balloon, cost = jax.lax.fori_loop(0, N, inner_run, init_val=(start_time, balloon, cost))
     # cost += terminal_cost
 
-    return -(final_balloon.state[0]**2 + final_balloon.state[1]**2)
+    return (final_balloon.state[0]**2 + final_balloon.state[1]**2)
 
 gradient_at = jax.jit(jax.grad(cost_at, argnums=3))
 # gradient_at = jax.grad(cost_at, argnums=3)
@@ -105,7 +103,7 @@ def make_plan(start_time, dt, num_plans, num_steps, balloon, wind):
     for i, plan in enumerate(plans):
         
         cost = cost_at(start_time, dt, balloon, plan, wind)
-        print(cost)
+        # print(cost)
         if cost > best_cost:
             best_plan = i
             best_cost = cost
@@ -189,43 +187,46 @@ class MPCAgent(agent.Agent):
         # print(self.plan)
         
         # atmosnav optimizer:
-        # x = observation[1].km
-        # y = observation[2].km
-        # pressure = observation[3]
-        # t = observation[0].seconds
+        x = observation[1].km
+        y = observation[2].km
+        print(x, y)
+        pressure = observation[3]
+        t = observation[0].seconds
 
-        # # # t, x, y, pressure = observation
-        # balloon = make_weather_balloon(x, y, pressure, t)
-        # self.plan = make_plan(t, self.integration_time_step, 10, 1000, balloon, self.forecast)
-        # for i in range(10):
-        #     # start_time, dt, balloon, plan, wind
-        #     dplan = gradient_at(t, self.integration_time_step, balloon, self.plan, self.forecast)
-        #     # print(dplan)
-        #     self.plan += dplan / (np.linalg.norm(dplan) + 0.01)
-        # # print(self.plan[self.i])
-        # action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
-        # self.i+=1
-        action = 2
+        # # t, x, y, pressure = observation
+        balloon = make_weather_balloon(x, y, pressure, t)
+        self.plan = make_plan(t, self.integration_time_step, 10, 1000, balloon, self.forecast)
+        for i in range(10):
+            # start_time, dt, balloon, plan, wind
+            dplan = gradient_at(t, self.integration_time_step, balloon, self.plan, self.forecast)
+            # print(dplan)
+            self.plan -= dplan / (np.linalg.norm(dplan) + 0.01)
+        # print(self.plan[self.i])
+        action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
+        self.i+=1
+        # action = 2
         return action
 
     #@profile
     def step(self, reward: float, observation: np.ndarray) -> int:
         # t, x, y, pressure = observation
-        # x = observation[1].km
-        # y = observation[2].km
-        # pressure = observation[3]
-        # t = observation[0].seconds
-        # balloon = make_weather_balloon(x, y, pressure, t)
-        # self.plan = make_plan(t, self.integration_time_step, 10, 1000, balloon, self.forecast)
-        # for i in range(10):
-        #     # start_time, dt, balloon, plan, wind
-        #     dplan = gradient_at(t, self.integration_time_step, balloon, self.plan, self.forecast)
-        #     print(dplan)
-        #     self.plan += dplan / (np.linalg.norm(dplan) + 0.1)
+        x = observation[1].km
+        y = observation[2].km
+        print(x, y)
+        pressure = observation[3]
+        t = observation[0].seconds
+        balloon = make_weather_balloon(x, y, pressure, t)
+        self.plan = make_plan(t, self.integration_time_step, 10, 1000, balloon, self.forecast)
+        for i in range(10):
+            # start_time, dt, balloon, plan, wind
+            dplan = gradient_at(t, self.integration_time_step, balloon, self.plan, self.forecast)
+            # print(dplan)
+            self.plan -= dplan / (np.linalg.norm(dplan) + 0.1)
         
-        # action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
-        # self.i += 1
-        action = 2
+        # print(cost_at(t, self.integration_time_step, balloon, self.plan, self.forecast))
+        action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
+        self.i += 1
+        # action = 2
         return action
  
     def end_episode(self, reward: float, terminal: bool = True) -> None:
