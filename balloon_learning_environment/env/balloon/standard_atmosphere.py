@@ -63,6 +63,13 @@ class Atmosphere:
   This is built on top of standard atmosphere, but includes lapse rates
   to simulate a broader range of atmospheric conditions.
   """
+
+  def to_jax_atmopshere(self):
+    return JaxAtmosphere(
+       self._lapse_rates, 
+       self._temperature_transitions, self._pressure_transitions
+       )
+
   _HEIGHT_TRANSITIONS = np.array(
       [-610.0, 17000.0, 21000.0, 32000.0, 47000.0, 51000.0, 71000.0, 85000.0])
   _LAPSE_RATES_LOW = np.array(
@@ -200,3 +207,112 @@ class Atmosphere:
         temperature_ratio
         **(-constants.GRAVITY /
            (constants.DRY_AIR_SPECIFIC_GAS_CONSTANT * lapse_rate)))
+
+class JaxAtmosphere:
+    """Atmospheric conditions for a variety of geographical locations."""
+    
+    _HEIGHT_TRANSITIONS = jnp.array(
+        [-610.0, 17000.0, 21000.0, 32000.0, 47000.0, 51000.0, 71000.0, 85000.0])
+  
+    def __init__(self, lapse_rates, temperature_transitions, pressure_transitions):
+        self._lapse_rates = jnp.array(lapse_rates)
+        self._temperature_transitions = jnp.array(temperature_transitions)
+        self._pressure_transitions = jnp.array(pressure_transitions)
+
+
+    def at_height(self, height: float) -> AtmosphericValues:
+        """Computes atmosphere values at a specific height."""
+        # Check that height is within expected range
+        height = jnp.clip(height.m, self._HEIGHT_TRANSITIONS[0], self._HEIGHT_TRANSITIONS[-1] - 1e-6)
+
+        # Compute temperature and pressure
+        def calculate_at_height(i, temperature_pressure):
+            temperature, pressure = temperature_pressure
+            condition = (height < self._HEIGHT_TRANSITIONS[i + 1])
+            new_temperature = self._temperature_transitions[i] + self._lapse_rates[i] * (height - self._HEIGHT_TRANSITIONS[i])
+            new_pressure = jax.lax.cond(
+                self._lapse_rates[i] == 0.0,
+                lambda op: self._pressure_for_constant_temperature(
+                    # height - self._HEIGHT_TRANSITIONS[i], new_temperature, self._pressure_transitions[i]
+                    op[0] - op[2][op[1]], op[3], op[4][op[1]]
+                  ),
+                lambda op: self._pressure_for_linear_temperature(
+                    # new_temperature / self._temperature_transitions[i], self._lapse_rates[i], self._pressure_transitions[i]
+                    op[3]/op[5][op[1]], op[6][op[1]], op[4][op[1]]
+                  ),
+                operand=(height, i, self._HEIGHT_TRANSITIONS, new_temperature, self._pressure_transitions, self._temperature_transitions, self._lapse_rates)
+            )
+            return jax.lax.cond(condition, lambda op: (op[0], op[1]), lambda op: (op[2], op[3]), operand=(new_temperature, new_pressure, temperature, pressure))
+
+        temperature, pressure = jax.lax.fori_loop(0, len(self._lapse_rates), calculate_at_height, (0.0, 0.0))
+        density = pressure / (constants.DRY_AIR_SPECIFIC_GAS_CONSTANT * temperature)
+        return AtmosphericValues(height, temperature, pressure, density)
+
+    def at_pressure(self, pressure: float) -> AtmosphericValues:
+        """Computes atmosphere values at a specific pressure."""
+        # Check that pressure is within expected range
+        pressure = jnp.clip(pressure, self._pressure_transitions[-1] + 1e-6, self._pressure_transitions[0])
+
+        def calculate_at_pressure(i, height_temperature):
+            height, temperature = height_temperature
+            condition = (pressure > self._pressure_transitions[i + 1])
+            new_height = jax.lax.cond(
+                self._lapse_rates[i] == 0.0,
+                lambda _: (-constants.DRY_AIR_SPECIFIC_GAS_CONSTANT * self._temperature_transitions[i] / constants.GRAVITY) *
+                          jnp.log(pressure / self._pressure_transitions[i]) + self._HEIGHT_TRANSITIONS[i],
+                lambda _: (((pressure / self._pressure_transitions[i]) **
+                            (-constants.DRY_AIR_SPECIFIC_GAS_CONSTANT * self._lapse_rates[i] / constants.GRAVITY) - 1) *
+                           self._temperature_transitions[i] / self._lapse_rates[i] + self._HEIGHT_TRANSITIONS[i])
+            )
+            new_temperature = self._temperature_transitions[i] + self._lapse_rates[i] * (new_height - self._HEIGHT_TRANSITIONS[i])
+            return jax.lax.cond(condition, lambda _: (new_height, new_temperature), lambda _: (height, temperature))
+
+        height, temperature = jax.lax.fori_loop(0, len(self._lapse_rates), calculate_at_pressure, (0.0, 0.0))
+        density = pressure / (constants.DRY_AIR_SPECIFIC_GAS_CONSTANT * temperature)
+        return AtmosphericValues(height, temperature, pressure, density)
+
+    def _initialize_temperature_transitions(self) -> None:
+        """Initializes temperature transitions."""
+        def calculate_temperature_transition(i, temp_transitions):
+            new_temp = temp_transitions[-1] + self._lapse_rates[i] * (self._HEIGHT_TRANSITIONS[i + 1] - self._HEIGHT_TRANSITIONS[i])
+            return jnp.append(temp_transitions, new_temp)
+        self._temperature_transitions = jax.lax.fori_loop(0, len(self._lapse_rates), calculate_temperature_transition, jnp.array([300.0]))
+
+    def _initialize_pressure_transitions(self) -> None:
+        """Initializes pressure transitions."""
+        def calculate_pressure_transition(i, pressure_transitions):
+            new_pressure = jax.lax.cond(
+                self._lapse_rates[i] == 0.0,
+                lambda _: self._pressure_for_constant_temperature(
+                    self._HEIGHT_TRANSITIONS[i + 1] - self._HEIGHT_TRANSITIONS[i],
+                    self._temperature_transitions[i + 1],
+                    pressure_transitions[-1]),
+                lambda _: self._pressure_for_linear_temperature(
+                    self._temperature_transitions[i + 1] / self._temperature_transitions[i],
+                    self._lapse_rates[i],
+                    pressure_transitions[-1])
+            )
+            return jnp.append(pressure_transitions, new_pressure)
+        self._pressure_transitions = jax.lax.fori_loop(0, len(self._lapse_rates), calculate_pressure_transition, jnp.array([108870.8213]))
+
+    @staticmethod
+    def _pressure_for_constant_temperature(delta_height: float, temperature: float, pressure_init: float) -> float:
+        """Compute pressure for regions of constant temperature."""
+        return pressure_init * jnp.exp(
+            -(constants.GRAVITY * delta_height) /
+            (constants.DRY_AIR_SPECIFIC_GAS_CONSTANT * temperature))
+
+    @staticmethod
+    def _pressure_for_linear_temperature(temperature_ratio: float, lapse_rate: float, pressure_init: float) -> float:
+        """Compute pressure for regions of linearly changing temperature."""
+        return pressure_init * (
+            temperature_ratio
+            **(-constants.GRAVITY /
+               (constants.DRY_AIR_SPECIFIC_GAS_CONSTANT * lapse_rate)))
+        
+    def tree_flatten(self):
+      return tuple(self._lapse_rates, self._temperature_transitions, self._pressure_transitions), {}
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children): 
+      return JaxAtmosphere(*children)

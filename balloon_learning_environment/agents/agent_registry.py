@@ -36,6 +36,7 @@ from balloon_learning_environment.agents import quantile_agent
 from balloon_learning_environment.agents import random_walk_agent
 from balloon_learning_environment.agents import station_seeker_agent
 from balloon_learning_environment.agents import mpc_agent
+from balloon_learning_environment.agents import copyagent
 
 
 BASE_DIR = 'balloon_learning_environment/agents/configs'
@@ -49,7 +50,8 @@ REGISTRY = {
                              f'{BASE_DIR}/finetune_perciatelli.gin'),
     'station_seeker': (station_seeker_agent.StationSeekerAgent, None),
     'random_walk': (random_walk_agent.RandomWalkAgent, None),
-    'mpc': (mpc_agent.MPCAgent, None)
+    'mpc': (mpc_agent.MPCAgent, None),
+    'copyagent': (copyagent.Follower, None),
   }
 
 try:

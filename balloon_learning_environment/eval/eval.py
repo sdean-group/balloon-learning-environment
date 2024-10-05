@@ -38,7 +38,7 @@ flags.DEFINE_enum('suite', 'big_eval',
                   'The evaluation suite to run.')
 flags.DEFINE_string(
     'wind_field', 'generative',
-    'The wind field type to use. See the _WIND_FIELDS dict below for options.')
+    'The wind field type to use. See the wind field factory dict below for options.')
 flags.DEFINE_string('agent_gin_file', None, 'Gin file for agent configuration.')
 flags.DEFINE_multi_string('gin_bindings', [],
                           'Gin bindings to override default values.')
@@ -76,7 +76,6 @@ _FEATURE_CONSTRUCTORS = {
   'perciatelli': features.PerciatelliFeatureConstructor,
   'mpc': features.MPCFeatures
 }
-
 
 def write_result(result: Sequence[eval_lib.EvaluationResult]) -> None:
   """Writes an evaluation result as a json file."""

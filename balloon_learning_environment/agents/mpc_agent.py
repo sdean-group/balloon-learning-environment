@@ -12,20 +12,6 @@ import atmosnav as atm
 from scipy.optimize import minimize
 
 
-class SimpleJaxWindField(JaxWindField):
-    def get_forecast(self, x: float, y: float, pressure: float, elapsed_time: float):
-        return jnp.array([1.0, 0.0])
-    
-    def tree_flatten(self):
-        children = tuple()  # arrays / dynamic values
-        aux_data = {}  # static values
-        return children, aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return SimpleJaxWindField()
-    
-
 class DeterministicAltitudeModel(Dynamics):
 
     def __init__(self, integration_time_step):
@@ -76,6 +62,7 @@ def cost_at(start_time, dt, balloon, plan, wind):
         # cost += within_radius * 1 + (not within_radius) * (0.4 * 2**(distance - 50))
 
         pressure = atm.utils.alt2p(altitude)
+        jax.debug.print("")
         wind_vector = wind.get_forecast(x, y, pressure, time)
         next_balloon, _ = balloon.step(time, plan, wind_vector)
         return time + dt, next_balloon, cost
@@ -99,12 +86,12 @@ def make_plan(start_time, dt, num_plans, num_steps, balloon, wind):
         plans.append(np.reshape(plan, (num_steps, 1)))
 
     best_plan = -1
-    best_cost = -np.inf
+    best_cost = +np.inf
     for i, plan in enumerate(plans):
         
         cost = cost_at(start_time, dt, balloon, plan, wind)
         # print(cost)
-        if cost > best_cost:
+        if cost < best_cost:
             best_plan = i
             best_cost = cost
 
@@ -195,14 +182,15 @@ class MPCAgent(agent.Agent):
 
         # # t, x, y, pressure = observation
         balloon = make_weather_balloon(x, y, pressure, t)
-        self.plan = make_plan(t, self.integration_time_step, 10, 1000, balloon, self.forecast)
-        for i in range(10):
+        self.plan = make_plan(t, self.integration_time_step, 50, 1000, balloon, self.forecast)
+        for _ in range(100):
             # start_time, dt, balloon, plan, wind
             dplan = gradient_at(t, self.integration_time_step, balloon, self.plan, self.forecast)
             # print(dplan)
             self.plan -= dplan / (np.linalg.norm(dplan) + 0.01)
         # print(self.plan[self.i])
         action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
+        print(action)
         self.i+=1
         # action = 2
         return action
@@ -216,15 +204,16 @@ class MPCAgent(agent.Agent):
         pressure = observation[3]
         t = observation[0].seconds
         balloon = make_weather_balloon(x, y, pressure, t)
-        self.plan = make_plan(t, self.integration_time_step, 10, 1000, balloon, self.forecast)
-        for i in range(10):
+        self.plan = make_plan(t, self.integration_time_step, 50, 1000, balloon, self.forecast)
+        for i in range(100):
             # start_time, dt, balloon, plan, wind
             dplan = gradient_at(t, self.integration_time_step, balloon, self.plan, self.forecast)
             # print(dplan)
-            self.plan -= dplan / (np.linalg.norm(dplan) + 0.1)
+            self.plan -= dplan / (np.linalg.norm(dplan) + 0.01)
         
         # print(cost_at(t, self.integration_time_step, balloon, self.plan, self.forecast))
         action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
+        print(action)
         self.i += 1
         # action = 2
         return action

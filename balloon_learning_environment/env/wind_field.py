@@ -161,6 +161,8 @@ class SimpleStaticWindField(WindField):
   This wind field flows in the four cardinal directions based on the pressure
   of the point in the field.
   """
+  def to_jax_wind_field(self):
+    return JaxSimpleStaticWindField()
 
   def reset_forecast(
       self, unused_key: jnp.ndarray, unused_date_time: dt.datetime) -> None:
@@ -191,7 +193,48 @@ class SimpleStaticWindField(WindField):
       return WindVector(units.Velocity(mps=-10.0), units.Velocity(mps=0.0))
     else:
       return WindVector(units.Velocity(mps=0.0), units.Velocity(mps=-10.0))
+    
+class JaxSimpleStaticWindField(JaxWindField):
+  """A static wind field for jax environments."""
 
+  def get_forecast(self, x: float, y: float, pressure: float, elapsed_time: float):
+    """Returns wind at a point in the field.
+
+    Args:
+      x: Distance from the station keeping target along the latitude
+        parallel.
+      y: Distance from the station keeping target along the longitude
+        parallel.
+      pressure: Pressure at this point in the wind field in Pascals. (This is a
+        proxy for altitude.)
+      elapsed_time: Elapsed time from the "beginning" of the wind field.
+
+    Returns:
+      A WindVector for the position in the WindField.
+    """
+    return jax.lax.cond(
+        pressure < 8000.0,
+        lambda _: jnp.array([10.0, 0.0]),
+        lambda _: jax.lax.cond(
+            pressure < 10000.0,
+            lambda _: jnp.array([0.0, 10.0]),
+            lambda _: jax.lax.cond(
+                pressure < 12000.0,
+                lambda _: jnp.array([-10.0, 0.0]),
+                lambda _: jnp.array([0.0, -10.0]),
+                operand=None
+            ),
+            operand=None
+        ),
+        operand=None
+    )
+  
+  def tree_flatten(self):
+    return tuple(), {}
+
+  @classmethod
+  def tree_unflatten(cls, aux_data, children): 
+    return JaxSimpleStaticWindField()
 
 # TODO(bellemare): Should this be moved to units?
 class SimplexWindNoise(object):
