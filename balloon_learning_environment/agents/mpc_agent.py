@@ -205,7 +205,7 @@ class MPCAgent(agent.Agent):
         # # print(self.plan[self.i])
         # action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
         # self.i+=1
-        action = 0
+        action = 2
         return action
 
     #@profile
@@ -225,7 +225,7 @@ class MPCAgent(agent.Agent):
         
         # action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
         # self.i += 1
-        action = 0
+        action = 2
         return action
  
     def end_episode(self, reward: float, terminal: bool = True) -> None:
