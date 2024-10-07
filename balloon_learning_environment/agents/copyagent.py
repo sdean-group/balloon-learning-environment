@@ -14,12 +14,13 @@ from scipy.optimize import minimize
 import json
 import atmosnav
 
-def convert_plan_to_actions(plan, observation, i, atmosphere):
+def convert_plan_to_actions(plan, observation, i, follower):
     i %= len(plan)
     _, _, _, pressure = observation
-    height = atmosphere.at_pressure(pressure).height
-    pressure = atmosnav.utils.alt2p(height.km)
+    height = jax.jit(follower.jax_atmosphere.at_pressure)(pressure).height
+    # pressure = atmosnav.utils.alt2p(height.km)
     # pressure = atmosphere.at_height(height).pressure
+    pressure = jax.jit(follower.jax_atmosphere.at_height)(height).pressure
 
     if abs(pressure - plan[i]) < 0.2:
         return 1 #STAY
@@ -43,11 +44,11 @@ class Follower(agent.Agent):
         self.plan = list(entry['pressure'] for entry in data[0]['flight_path'])
 
     def begin_episode(self, observation: np.ndarray) -> int:
-        return convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
+        return convert_plan_to_actions(self.plan, observation, self.i, self)
 
     def step(self, reward: float, observation: np.ndarray) -> int:
         self.i += 1
-        return convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
+        return convert_plan_to_actions(self.plan, observation, self.i, self)
  
     def end_episode(self, reward: float, terminal: bool = True) -> None:
         self.i = 0 
@@ -57,4 +58,5 @@ class Follower(agent.Agent):
 
     def update_atmosphere(self, atmosphere: agent.standard_atmosphere.Atmosphere): 
         self.atmosphere = atmosphere
+        self.jax_atmosphere = atmosphere.to_jax_atmopshere()
 
