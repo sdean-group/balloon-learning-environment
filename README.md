@@ -62,6 +62,18 @@ Finaly, find a line similar to the string below on your g2 terminal print-out:\
 
 Copy `127.0.0.1:PORT` with `PORT` replaced and paste it on your local browser. Use the string after `token` as your "login password".
 
+## Mac Installation
+
+```
+git clone --branch python3.9 git@github.com:sdean-group/atmosnav.git
+cd balloon-learning-environment/
+conda create --name ble python=3.9
+conda activate ble
+pip install --upgrade pip
+pip install balloon_learning_environment
+pip install --no-deps -e ../atmosnav
+```
+
 ## Getting Started
 
 Note: The BLE requires python >= 3.7
