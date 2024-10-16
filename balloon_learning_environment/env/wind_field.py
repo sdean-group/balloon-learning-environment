@@ -235,6 +235,42 @@ class JaxSimpleStaticWindField(JaxWindField):
   @classmethod
   def tree_unflatten(cls, aux_data, children): 
     return JaxSimpleStaticWindField()
+  
+class Pt2CenterWindField(WindField):
+  """A wind field that flows from a point to the center of the field."""
+
+  def to_jax_wind_field(self):
+    return JaxPt2CenterWindField()
+
+  def reset_forecast(self, key: jnp.ndarray, date_time: dt.datetime) -> None:
+    pass
+
+  def get_forecast(self, x: units.Distance, y: units.Distance, pressure: float,
+                    elapsed_time: dt.timedelta) -> WindVector:
+    
+    if (x.km**2 + y.km**2) < 0.01: 
+      return WindVector(0, 0)
+  
+    mag = (x.km**2 + y.km**2)**0.5
+    return WindVector(-x.km / mag, -y.km / mag)
+    
+
+class JaxPt2CenterWindField(JaxWindField):
+
+  def get_forecast(self, x: float, y: float, pressure: float, elapsed_time: float):
+    mag = (x**2 + y**2)**0.5
+    return jax.lax.cond(
+      x**2 + y**2 < 0.01,
+      lambda op: jax.array([ 0.0, 0.0 ]),
+      lambda op: jax.array([-op[0] / op[2], -op[1] / op[2]]),
+      operand=(x,y,mag))
+  
+  def tree_flatten(self):
+    return tuple(), {}
+
+  @classmethod
+  def tree_unflatten(cls, aux_data, children): 
+    return JaxPt2CenterWindField()
 
 # TODO(bellemare): Should this be moved to units?
 class SimplexWindNoise(object):
