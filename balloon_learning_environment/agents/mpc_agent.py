@@ -10,6 +10,7 @@ import datetime as dt
 from atmosnav import *
 import atmosnav as atm
 from scipy.optimize import minimize
+from functools import partial
 
 
 class DeterministicAltitudeModel(Dynamics):
@@ -39,44 +40,40 @@ class DeterministicAltitudeModel(Dynamics):
     def tree_unflatten(cls, aux_data, children):
         return DeterministicAltitudeModel(aux_data['dt'])
 
-#@profile
-def make_weather_balloon(init_lat, init_lon, init_pressure, start_time, atmosphere):
-    return Airborne(
-        jnp.array([ init_lat, init_lon, atmosphere.at_pressure(init_pressure).height.km, 0.0 ]),
-        PlanToWaypointController(start_time=start_time, waypoint_time_step=3*60),
-        DeterministicAltitudeModel(integration_time_step=3*60))
 
 #@profile
-@jax.jit
-def cost_at(start_time, dt, balloon, plan, wind, atmosphere):
-    N = ((len(plan)-1))
+def make_weather_balloon(init_lat, init_lon, init_pressure, start_time, atmosphere, waypoint_time_step, integration_time_step):
+    return Airborne(
+        jnp.array([ init_lat, init_lon, atmosphere.at_pressure(init_pressure).height.km, 0.0 ]),
+        PlanToWaypointController(start_time, waypoint_time_step),
+        DeterministicAltitudeModel(integration_time_step))
+
+#@profile
+@partial(jax.jit, static_argnums=(6, 7))
+def cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, integration_time_step):
+    # N = (waypoint_time_step * (len(plan)-1)) // integration_time_step
     cost = 0.0
     def inner_run(i, time_balloon_cost):
         time, balloon, cost = time_balloon_cost
-        # step the agent in time
         x, y, altitude, _ = balloon.state
+        # km, km, km
 
-        # distance = jnp.hypot(x, y)
-        # within_radius = distance <= 50
-        # cost+= jax.lax.cond(within_radius, lambda _: 1.0, lambda op: 0.4 * jnp.exp(-0.69314718056 / 100  * (op- 50)), operand=distance)
-        # cost += within_radius * 1 + (not within_radius) * (0.4 * 2**(distance - 50))
-
-        pressure = atmosphere.at_height(height_meters=altitude*1000).pressure
-        wind_vector = wind.get_forecast(x, y, pressure, time)
+        pressure = atmosphere.at_height(height_meters=altitude*1000.0).pressure
+        wind_vector = integration_time_step * wind.get_forecast(x, y, pressure, time)/1000.0 # wind vector starts as meters per second, convert to change in kilometers
         next_balloon, _ = balloon.step(time, plan, wind_vector)
-        return time + dt, next_balloon, cost
+        return time + integration_time_step, next_balloon, cost
 
-    _, final_balloon, cost = jax.lax.fori_loop(0, N, inner_run, init_val=(start_time, balloon, cost))
+    _, final_balloon, cost = jax.lax.fori_loop(0, 4302, inner_run, init_val=(start_time, balloon, cost))
     # cost += terminal_cost
 
     return (final_balloon.state[0]**2 + final_balloon.state[1]**2)
 
-gradient_at = jax.jit(jax.grad(cost_at, argnums=3))
+gradient_at = jax.jit(jax.grad(cost_at, argnums=2), static_argnums=(6, 7))
 # gradient_at = jax.grad(cost_at, argnums=3)
 
 # Plan helper functions
 #@profile
-def make_plan(start_time, dt, num_plans, num_steps, balloon, wind, atmosphere):
+def make_plan(start_time, num_plans, num_steps, balloon, wind, atmosphere, waypoint_time_step, integration_time_step):
         
     plans = [np.zeros((num_steps, 1))]
 
@@ -88,7 +85,7 @@ def make_plan(start_time, dt, num_plans, num_steps, balloon, wind, atmosphere):
     best_cost = +np.inf
     for i, plan in enumerate(plans):
         
-        cost = cost_at(start_time, dt, balloon, plan, wind, atmosphere)
+        cost = cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, integration_time_step)
         # print(cost)
         if cost < best_cost:
             best_plan = i
@@ -119,36 +116,6 @@ def convert_plan_to_actions(plan, observation, i, atmosphere):
 
 # Idea: use observations to improve forecast (like perciatelli feature uses WindGP)
 # TODO: use atmopshere class to do conversions between altitude and pressure
-
-#@profile
-def cost(plan, observation, forecast, atmosphere, stride):
-    vlim = 1.7
-    t_i, x_i, y_i, p_i = observation
-    cost = 0.0
-    for a_target in plan: # target pressure
-        wind_vector = forecast.get_forecast(x_i, y_i, p_i, t_i)
-        # print(wind_vector)
-
-        x_i += wind_vector.u * stride
-        y_i += wind_vector.v * stride
-
-
-        p_target = atmosphere.at_height(units.Distance(km=a_target)).pressure
-        if p_i > p_target:
-            a_i = atmosphere.at_pressure(p_i).height.km
-            
-            if abs(a_target-a_i) > vlim / 3600.0 * stride.seconds:
-                a_i += vlim / 3600.0 * stride.seconds * np.sign(a_target-a_i)
-            else:
-                a_i = a_target
-            p_i = atmosphere.at_height(a_i).pressure
-        
-        t_i += stride
-
-        cost += -(x_i.meters)**2# + (y_i.meters**2)
-    return cost
-
-
     
 
 class MPCAgent(agent.Agent):
@@ -162,8 +129,10 @@ class MPCAgent(agent.Agent):
         self.plan_size = 50
         self.plan = None
         self.i = 0
-        self.waypoint_time_step = 3*60
-        self.integration_time_step = 3*60
+        self.waypoint_time_step = 3*60 # seconds, Equivalent to time_delta in BalloonArena
+        # balloon_arena._step_duration = constants.AGENT_TIME_STEP
+
+        self.integration_time_step = 10 # seconds, Equivalent to stride
 
     #@profile
     def begin_episode(self, observation: np.ndarray) -> int:
@@ -180,11 +149,11 @@ class MPCAgent(agent.Agent):
         t = observation[0].seconds
 
         # # t, x, y, pressure = observation
-        balloon = make_weather_balloon(x, y, pressure, t, self.atmosphere)
-        self.plan = make_plan(t, self.integration_time_step, 50, 1000, balloon, self.forecast, self.atmosphere)
+        balloon = make_weather_balloon(x, y, pressure, t, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
+        self.plan = make_plan(t, 50, 240, balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
         for _ in range(100):
             # start_time, dt, balloon, plan, wind
-            dplan = gradient_at(t, self.integration_time_step, balloon, self.plan, self.forecast, self.atmosphere)
+            dplan = gradient_at(t, balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
             # print(dplan)
             self.plan -= dplan / (np.linalg.norm(dplan) + 0.01)
         # print(self.plan[self.i])
@@ -202,11 +171,11 @@ class MPCAgent(agent.Agent):
         print(x, y)
         pressure = observation[3]
         t = observation[0].seconds
-        balloon = make_weather_balloon(x, y, pressure, t, self.atmosphere)
-        self.plan = make_plan(t, self.integration_time_step, 50, 1000, balloon, self.forecast, self.atmosphere)
+        balloon = make_weather_balloon(x, y, pressure, t, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
+        self.plan = make_plan(t, 50, 240, balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
         for i in range(100):
-            # start_time, dt, balloon, plan, wind
-            dplan = gradient_at(t, self.integration_time_step, balloon, self.plan, self.forecast, self.atmosphere)
+            # start_time, balloon, plan, wind
+            dplan = gradient_at(t, balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
             # print(dplan)
             self.plan -= dplan / (np.linalg.norm(dplan) + 0.01)
         
@@ -228,9 +197,4 @@ class MPCAgent(agent.Agent):
     #@profile
     def update_atmosphere(self, atmosphere: agent.standard_atmosphere.Atmosphere): 
         self.atmosphere = atmosphere.to_jax_atmopshere() 
-
-
-
-    # def _check_forecast_present(self):
-
 
