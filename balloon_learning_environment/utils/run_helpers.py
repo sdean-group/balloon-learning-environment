@@ -70,6 +70,8 @@ def get_wind_field_factory(
     return generative_wind_field.generative_wind_field_factory
   elif wind_field_name == 'point_to_center':
     return wind_field.Pt2CenterWindField
+  elif wind_field_name == 'spinny':
+    return wind_field.SpinnyWindField
   else:
     raise ValueError(f'Unknown wind field {wind_field_name}')
 

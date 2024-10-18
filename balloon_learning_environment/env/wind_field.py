@@ -29,6 +29,7 @@ from balloon_learning_environment.env import simplex_wind_noise
 from balloon_learning_environment.utils import units
 import gin
 import jax
+import numpy as np
 from jax import numpy as jnp
 from atmosnav import *
 
@@ -249,10 +250,10 @@ class Pt2CenterWindField(WindField):
                     elapsed_time: dt.timedelta) -> WindVector:
     
     if (x.km**2 + y.km**2) < 0.01: 
-      return WindVector(0, 0)
+      return WindVector(units.Velocity(mps=0), units.Velocity(mps=0))
   
     mag = (x.km**2 + y.km**2)**0.5
-    return WindVector(-x.km / mag, -y.km / mag)
+    return WindVector(units.Velocity(mps= 10 * -x.km / mag), units.Velocity(mps= 10 * -y.km / mag))
     
 
 class JaxPt2CenterWindField(JaxWindField):
@@ -261,8 +262,8 @@ class JaxPt2CenterWindField(JaxWindField):
     mag = (x**2 + y**2)**0.5
     return jax.lax.cond(
       x**2 + y**2 < 0.01,
-      lambda op: jax.array([ 0.0, 0.0 ]),
-      lambda op: jax.array([-op[0] / op[2], -op[1] / op[2]]),
+      lambda op: jnp.array([ 0.0, 0.0 ]),
+      lambda op: jnp.array([-op[0] / op[2], -op[1] / op[2]]),
       operand=(x,y,mag))
   
   def tree_flatten(self):
@@ -271,6 +272,38 @@ class JaxPt2CenterWindField(JaxWindField):
   @classmethod
   def tree_unflatten(cls, aux_data, children): 
     return JaxPt2CenterWindField()
+  
+
+class SpinnyWindField(WindField):
+  """A wind field that flows from a point to the center of the field."""
+
+  def to_jax_wind_field(self):
+    return JaxSpinnyWindField()
+
+  def reset_forecast(self, key: jnp.ndarray, date_time: dt.datetime) -> None:
+    pass
+
+  def get_forecast(self, x: units.Distance, y: units.Distance, pressure: float,
+                    elapsed_time: dt.timedelta) -> WindVector:
+    
+    a, b = 3689.3997945759265, 101517.76878288877
+    n = 2 *np.pi *(pressure - a) / (b - a)
+    return WindVector(units.Velocity(mps=10 * np.cos(n)), units.Velocity(mps=10* np.sin(n)))
+    
+
+class JaxSpinnyWindField(JaxWindField):
+
+  def get_forecast(self, x: float, y: float, pressure: float, elapsed_time: float):
+    a, b = 3689.3997945759265, 101517.76878288877
+    n = 10 *jnp.pi *(pressure - a) / (b - a)
+    return jnp.array([ 10 * jnp.cos(n), 10 * jnp.sin(n) ])
+  
+  def tree_flatten(self):
+    return tuple(), {}
+
+  @classmethod
+  def tree_unflatten(cls, aux_data, children): 
+    return JaxSpinnyWindField()
 
 # TODO(bellemare): Should this be moved to units?
 class SimplexWindNoise(object):
@@ -304,3 +337,4 @@ class SimplexWindNoise(object):
     return WindVector(
         units.Velocity(meters_per_second=wind_noise_u),
         units.Velocity(meters_per_second=wind_noise_v))
+
