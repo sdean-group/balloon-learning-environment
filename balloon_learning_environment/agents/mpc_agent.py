@@ -49,50 +49,50 @@ def make_weather_balloon(init_lat, init_lon, init_pressure, start_time, atmosphe
         DeterministicAltitudeModel(integration_time_step))
 
 #@profile
-@partial(jax.jit, static_argnums=(6, 7))
+@partial(jax.jit, static_argnums=(5, 6))
 def cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, integration_time_step):
     # N = (waypoint_time_step * (len(plan)-1)) // integration_time_step
+    factor = 1.0
     cost = 0.0
     def inner_run(i, time_balloon_cost):
-        time, balloon, cost = time_balloon_cost
+        time, balloon, cost, factor = time_balloon_cost
         x, y, altitude, _ = balloon.state
         # km, km, km
+
+        cost += factor * (balloon.state[0]**2 + balloon.state[1] **2)
+        factor *= 0.99
 
         pressure = atmosphere.at_height(height_meters=altitude*1000.0).pressure
         wind_vector = integration_time_step * wind.get_forecast(x, y, pressure, time)/1000.0 # wind vector starts as meters per second, convert to change in kilometers
         next_balloon, _ = balloon.step(time, plan, wind_vector)
-        return time + integration_time_step, next_balloon, cost
+        return time + integration_time_step, next_balloon, cost, factor
 
-    _, final_balloon, cost = jax.lax.fori_loop(0, 4302, inner_run, init_val=(start_time, balloon, cost))
+    _, final_balloon, cost, factor = jax.lax.fori_loop(0, 4302, inner_run, init_val=(start_time, balloon, cost, factor))
     # cost += terminal_cost
 
-    return (final_balloon.state[0]**2 + final_balloon.state[1]**2)
+    return cost # (final_balloon.state[0]**2 + final_balloon.state[1]**2)
 
-gradient_at = jax.jit(jax.grad(cost_at, argnums=2), static_argnums=(6, 7))
+gradient_at = jax.jit(jax.grad(cost_at, argnums=2), static_argnums=(5, 6))
 # gradient_at = jax.grad(cost_at, argnums=3)
 
 # Plan helper functions
 #@profile
 def make_plan(start_time, num_plans, num_steps, balloon, wind, atmosphere, waypoint_time_step, integration_time_step):
         
-    plans = [np.zeros((num_steps, 1))]
-
-    for _ in range(num_plans):
-        plan = 22*np.random.rand(1) + np.sin(2*np.pi*np.random.rand(1)*np.arange(num_steps)/10)
-        plans.append(np.reshape(plan, (num_steps, 1)))
-
     best_plan = -1
     best_cost = +np.inf
-    for i, plan in enumerate(plans):
-        
+    for i in range(num_plans):
+        plan = 13 + 9*np.random.rand(1) # + np.sin(2*np.pi*np.random.rand(1)*np.arange(num_steps)/10)
+        plan = np.full((num_steps, 1), plan)
+        # plan = np.reshape(plan, (num_steps, 1))
+
         cost = cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, integration_time_step)
         # print(cost)
         if cost < best_cost:
-            best_plan = i
+            best_plan = plan
             best_cost = cost
 
-    plan = plans[best_plan]
-    return jnp.array(plan)
+    return jnp.array(best_plan)
 
 #@profile
 def convert_plan_to_actions(plan, observation, i, atmosphere):
@@ -154,7 +154,6 @@ class MPCAgent(agent.Agent):
         for _ in range(100):
             # start_time, dt, balloon, plan, wind
             dplan = gradient_at(t, balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
-            # print(dplan)
             self.plan -= dplan / (np.linalg.norm(dplan) + 0.01)
         # print(self.plan[self.i])
         action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
