@@ -82,7 +82,8 @@ def make_plan(start_time, num_plans, num_steps, balloon, wind, atmosphere, waypo
     best_plan = -1
     best_cost = +np.inf
     for i in range(num_plans):
-        plan = 13 + 9*np.random.rand(1) # + np.sin(2*np.pi*np.random.rand(1)*np.arange(num_steps)/10)
+        # plan = 13 + 9*np.random.rand(1) # + np.sin(2*np.pi*np.random.rand(1)*np.arange(num_steps)/10)
+        plan = 22*np.random.random(1) + np.sin(2*np.pi*np.random.rand(1)*np.arange(num_steps)/10)
         plan = np.full((num_steps, 1), plan)
         # plan = np.reshape(plan, (num_steps, 1))
 
