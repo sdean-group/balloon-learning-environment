@@ -51,7 +51,7 @@ def make_weather_balloon(init_lat, init_lon, init_pressure, start_time, atmosphe
 #@profile
 @partial(jax.jit, static_argnums=(5, 6))
 def cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, integration_time_step):
-    # N = (waypoint_time_step * (len(plan)-1)) // integration_time_step
+    N = (waypoint_time_step * (len(plan)-1)) // integration_time_step
     factor = 1.0
     cost = 0.0
     def inner_run(i, time_balloon_cost):
@@ -67,8 +67,10 @@ def cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, int
         next_balloon, _ = balloon.step(time, plan, wind_vector)
         return time + integration_time_step, next_balloon, cost, factor
 
-    _, final_balloon, cost, factor = jax.lax.fori_loop(0, 4302, inner_run, init_val=(start_time, balloon, cost, factor))
+    #    (3*60//10)*240,
+    t, final_balloon, cost, factor = jax.lax.fori_loop(0, N, inner_run, init_val=(start_time, balloon, cost, factor))
     # cost += terminal_cost
+    # jax.debug.print("{t}", t=t)
 
     return cost # (final_balloon.state[0]**2 + final_balloon.state[1]**2)
 
@@ -146,7 +148,7 @@ class MPCAgent(agent.Agent):
         # atmosnav optimizer:
         x = observation[1].km
         y = observation[2].km
-        print(x, y)
+        # print(x, y)
         pressure = observation[3]
         t = observation[0].seconds
 
@@ -156,10 +158,10 @@ class MPCAgent(agent.Agent):
         for _ in range(100):
             # start_time, dt, balloon, plan, wind
             dplan = gradient_at(t, balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
-            self.plan -= dplan / (np.linalg.norm(dplan) + 0.01)
+            self.plan -= dplan / (np.linalg.norm(dplan) + 0.0001)
         # print(self.plan[self.i])
         action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
-        print(action)
+        # print(action)
         self.i+=1
         # action = 2
         return action
@@ -169,7 +171,7 @@ class MPCAgent(agent.Agent):
         # t, x, y, pressure = observation
         x = observation[1].km
         y = observation[2].km
-        print(x, y)
+        # print(x, y)
         pressure = observation[3]
         t = observation[0].seconds
         balloon = make_weather_balloon(x, y, pressure, t, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
@@ -178,11 +180,11 @@ class MPCAgent(agent.Agent):
             # start_time, balloon, plan, wind
             dplan = gradient_at(t, balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
             # print(dplan)
-            self.plan -= dplan / (np.linalg.norm(dplan) + 0.01)
+            self.plan -= dplan / (np.linalg.norm(dplan) + 0.0001)
         
         # print(cost_at(t, self.integration_time_step, balloon, self.plan, self.forecast))
         action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
-        print(action)
+        # print(action)
         self.i += 1
         # action = 2
         return action

@@ -11,3 +11,5 @@ build/
 submission_files/
 
 balloon_learning_environment/colab/.ipynb_checkpoints/
+
+*.npy
