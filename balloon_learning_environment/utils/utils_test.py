@@ -54,12 +54,12 @@ def test_seconds_to_date():
     
     for i, seconds in enumerate(test_cases):
         print(f'Test Case {i+1}')
-        date = dt.datetime.fromtimestamp(seconds)
+        date = dt.datetime.fromtimestamp(seconds, tz=dt.timezone.utc)
         print(f"dt.datetime result: {(date.year, date.month, date.day)}")
         print(f"jax_utils result: {jax_utils.timestamp_to_date_components_jax(seconds)}")
         print("-" * 40)
 
-# test_seconds_to_date()
+test_seconds_to_date()
 
 def test_solar_calculator():
     jax.config.update("jax_enable_x64", True)
@@ -96,4 +96,4 @@ def test_solar_calculator():
         print("Difference:", np.abs(np.array(original_result) - np.array(jax_result)))
         print("-" * 40)
 
-test_solar_calculator()
+# test_solar_calculator()
