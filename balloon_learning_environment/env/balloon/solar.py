@@ -66,17 +66,21 @@ def solar_calculator(latlng: s2.LatLng,
   fraction_of_day = (
       int(time.timestamp()) %
       constants.NUM_SECONDS_PER_DAY) / constants.NUM_SECONDS_PER_DAY
+  print('A', fraction_of_day)
 
   # Compute Julian day number from Gregorian calendar.
+  print('B', time.year, time.month, time.day)
   julian_day_number = (367.0 * time.year - np.floor(7.0 * (time.year + np.floor(
       (time.month + 9.0) / 12.0)) / 4.0) - np.floor(3.0 * (np.floor(
           (time.year + (time.month - 9.0) / 7.0) / 100.0) + 1.0) / 4.0) +
                        np.floor(275.0 * time.month / 9.0) + time.day +
                        1721028.5)
+  print('C', julian_day_number)
 
   # Compute Julian time (in days and in centuries).
   julian_time = julian_day_number + fraction_of_day
   julian_century = (julian_time - 2451545.0) / 36525.0
+  print('D', julian_time, julian_century)
 
   # Compute solar parameters.
   geometric_mean_long_sun = math.radians(
@@ -84,12 +88,15 @@ def solar_calculator(latlng: s2.LatLng,
   sin2l0 = np.sin(2.0 * geometric_mean_long_sun)
   cos2l0 = np.cos(2.0 * geometric_mean_long_sun)
   sin4l0 = np.sin(4.0 * geometric_mean_long_sun)
+  print('E', geometric_mean_long_sun, sin2l0, cos2l0, sin4l0)
+
 
   geometric_mean_anomaly_sun = math.radians(
       357.52911 + julian_century * (35999.05029 - 0.0001537 * julian_century))
   sinm0 = np.sin(geometric_mean_anomaly_sun)
   sin2m0 = np.sin(2.0 * geometric_mean_anomaly_sun)
   sin3m0 = np.sin(3.0 * geometric_mean_anomaly_sun)
+  print('F', geometric_mean_anomaly_sun, sinm0, sin2m0, sin3m0)
 
   mean_obliquity_of_ecliptic = math.radians(23.0 + (26.0 + (
       (21.448 - julian_century *
@@ -98,26 +105,32 @@ def solar_calculator(latlng: s2.LatLng,
 
   obliquity_correction = mean_obliquity_of_ecliptic + math.radians(
       0.00256 * np.cos(math.radians(125.04 - 1934.136 * julian_century)))
+  print('G', mean_obliquity_of_ecliptic, obliquity_correction)
 
   var_y = np.tan(obliquity_correction / 2.0)**2
 
   eccentricity_earth = 0.016708634 - julian_century * (
       0.000042037 + 0.0000001267 * julian_century)
+  print('H', var_y, eccentricity_earth)
 
   equation_of_time = (4.0 *
                       (var_y * sin2l0 - 2.0 * eccentricity_earth * sinm0 +
                        4.0 * eccentricity_earth * var_y * sinm0 * cos2l0 -
                        0.5 * var_y * var_y * sin4l0 -
                        1.25 * eccentricity_earth * eccentricity_earth * sin2m0))
+  print('I', equation_of_time)
 
   hour_angle = math.radians(
       math.fmod(
           1440.0 * fraction_of_day + math.degrees(equation_of_time) +
           4.0 * latlng.lng().degrees, 1440.0)) / 4.0
+  
   if hour_angle < 0:
     hour_angle += math.pi
   else:
     hour_angle -= math.pi
+
+  print('J', hour_angle)
 
   eq_of_center_sun = math.radians(sinm0 *
                                   (1.914602 - julian_century *
@@ -126,11 +139,13 @@ def solar_calculator(latlng: s2.LatLng,
                                   (0.019993 - 0.000101 * julian_century) +
                                   sin3m0 * 0.000289)
   true_long_sun = geometric_mean_long_sun + eq_of_center_sun
+  print('K', eq_of_center_sun, true_long_sun)
   apparent_long_sun = true_long_sun - math.radians(
       0.00569 -
       0.00478 * np.sin(math.radians(125.04 - 1934.136 * julian_century)))
   declination_sun = np.arcsin(
       np.sin(obliquity_correction) * np.sin(apparent_long_sun))
+  print("L", apparent_long_sun, declination_sun)
 
   zenith_angle = np.arccos(
       np.sin(latlng.lat().radians) * np.sin(declination_sun) +
@@ -139,6 +154,7 @@ def solar_calculator(latlng: s2.LatLng,
 
   # Compute solar elevation. Correct for atmospheric refraction.
   el_uncorrected_deg = 90.0 - math.degrees(zenith_angle)
+  print(f'{zenith_angle=}, {el_uncorrected_deg=}')
 
   if el_uncorrected_deg > 85.0:
     atmospheric_refraction = 0
@@ -153,19 +169,30 @@ def solar_calculator(latlng: s2.LatLng,
                                 (-12.79 + el_uncorrected_deg * 0.711))))
   else:
     atmospheric_refraction = -20.772 / np.tan(math.radians(el_uncorrected_deg))
+  
+  # print("el_uncorrected_deg", el_uncorrected_deg)
+  # print("atmospheric_refraction", atmospheric_refraction)
 
   el_deg = el_uncorrected_deg + atmospheric_refraction / 3600.0
+  # print("el_deg", el_deg)
 
   # Compute solar azimuth. Make sure cos_azimuth is in the range [-1, 1].
+  # print(f'({latlng.lat().radians:0.3f}*cos({zenith_angle:0.3f})-sin({declination_sun:0.3f})) / cos({latlng.lat().radians:0.3f}) * sin({zenith_angle:0.3f})')
+  # print(f'({np.sin(latlng.lat().radians):0.5f}*{np.cos(zenith_angle):0.5f}-{np.sin(declination_sun):0.5f})) / ({np.cos(latlng.lat().radians)} * {np.sin(zenith_angle):0.5f})')
+  # print(f"in original solar, latlng.lat().radians: {latlng.lat().radians}, zenith_angle: {zenith_angle}, declination_sun: {declination_sun}")
+  # print(f'in original solar: ({np.sin(latlng.lat().radians)*np.cos(zenith_angle)-np.sin(declination_sun)}) / ({np.cos(latlng.lat().radians)*np.sin(zenith_angle)})')
+  
   cos_az = ((np.sin(latlng.lat().radians) * np.cos(zenith_angle) -
              np.sin(declination_sun)) /
             (np.cos(latlng.lat().radians) * np.sin(zenith_angle)))
+  # print("cos_az", cos_az)
   az_unwrapped = np.arccos(np.clip(cos_az, -1.0, 1.0))
+  # print("az_unwrapped", az_unwrapped)
   if hour_angle > 0:
     az_deg = math.degrees(az_unwrapped) + 180.0
   else:
     az_deg = 180.0 - math.degrees(az_unwrapped)
-
+  # print("az_deg", az_deg)
   # Compute solar flux in W/m^2.
   flux = 1366.0 * (1 + 0.5 * (
       ((1 + eccentricity_earth) /

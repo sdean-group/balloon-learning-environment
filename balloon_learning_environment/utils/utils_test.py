@@ -59,7 +59,7 @@ def test_seconds_to_date():
         print(f"jax_utils result: {jax_utils.timestamp_to_date_components_jax(seconds)}")
         print("-" * 40)
 
-test_seconds_to_date()
+# test_seconds_to_date()
 
 def test_solar_calculator():
     jax.config.update("jax_enable_x64", True)
@@ -87,7 +87,8 @@ def test_solar_calculator():
         original_result = solar.solar_calculator(s2_latlng, dt_obj)
 
         # Get new JAX-compatible result
-        jax_result = jax_utils.solar_calculator(jax_latlng, time_seconds)
+        # jax_result = jax.jit(jax_utils.solar_calculator)(jax_latlng, time_seconds)
+        jax_result = jax_utils.solar_calculator(jax_latlng, int(time_seconds))
 
         # Print results for comparison
         print(f"Test Case {i+1}")
@@ -95,5 +96,6 @@ def test_solar_calculator():
         print("JAX Result:", jax_result)
         print("Difference:", np.abs(np.array(original_result) - np.array(jax_result)))
         print("-" * 40)
+        # input()
 
-# test_solar_calculator()
+test_solar_calculator()

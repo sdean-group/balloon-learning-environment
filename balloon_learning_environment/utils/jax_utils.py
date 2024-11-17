@@ -38,7 +38,7 @@ class JaxLatLng:
         return cls(lat, lng)
 
     def tree_flatten(self): 
-        return (self.lat, self.lon), {}
+        return (self.lat, self.lng), {}
     
     def normalized(self):
         return self.__class__(
@@ -148,19 +148,25 @@ def solar_calculator(latlng: JaxLatLng, time_seconds: float) -> Tuple[float, flo
     #     raise ValueError(f'solar_calculator: latlng is invalid: {latlng}.')
 
     # Compute fraction_of_day from time in seconds.
-    fraction_of_day = (int(time_seconds) % NUM_SECONDS_PER_DAY) / NUM_SECONDS_PER_DAY
-
+    jax.config.update("jax_enable_x64", True)
+    # fraction_of_day = (time_seconds.astype(int) % NUM_SECONDS_PER_DAY) / NUM_SECONDS_PER_DAY
+    fraction_of_day = (time_seconds % NUM_SECONDS_PER_DAY) / NUM_SECONDS_PER_DAY # no jit
+    # print('A', fraction_of_day)
+    
     # Compute Julian day number from Gregorian calendar.
     year, month, day = timestamp_to_date_components_jax(time_seconds)
+    # print('B', year, month, day)
     julian_day_number = (
         367.0 * year - jnp.floor(7.0 * (year + jnp.floor((month + 9.0) / 12.0)) / 4.0)
         - jnp.floor(3.0 * (jnp.floor((year + (month - 9.0) / 7.0) / 100.0) + 1.0) / 4.0)
         + jnp.floor(275.0 * month / 9.0) + day + 1721028.5
     )
+    # print('C', julian_day_number)
 
     # Compute Julian time (in days and in centuries).
     julian_time = julian_day_number + fraction_of_day
     julian_century = (julian_time - 2451545.0) / 36525.0
+    # print('D', julian_time, julian_century)
 
     # Compute solar parameters.
     geometric_mean_long_sun = jnp.radians(
@@ -169,6 +175,7 @@ def solar_calculator(latlng: JaxLatLng, time_seconds: float) -> Tuple[float, flo
     sin2l0 = jnp.sin(2.0 * geometric_mean_long_sun)
     cos2l0 = jnp.cos(2.0 * geometric_mean_long_sun)
     sin4l0 = jnp.sin(4.0 * geometric_mean_long_sun)
+    # print('E', geometric_mean_long_sun, sin2l0, cos2l0, sin4l0)
 
     geometric_mean_anomaly_sun = jnp.radians(
         357.52911 + julian_century * (35999.05029 - 0.0001537 * julian_century)
@@ -176,6 +183,7 @@ def solar_calculator(latlng: JaxLatLng, time_seconds: float) -> Tuple[float, flo
     sinm0 = jnp.sin(geometric_mean_anomaly_sun)
     sin2m0 = jnp.sin(2.0 * geometric_mean_anomaly_sun)
     sin3m0 = jnp.sin(3.0 * geometric_mean_anomaly_sun)
+    # print('F', geometric_mean_anomaly_sun, sinm0, sin2m0, sin3m0)
 
     mean_obliquity_of_ecliptic = jnp.radians(
         23.0 + (26.0 + ((21.448 - julian_century * (46.815 + julian_century * (0.00059 - julian_century * 0.001813))) / 60.0)) / 60.0
@@ -183,24 +191,32 @@ def solar_calculator(latlng: JaxLatLng, time_seconds: float) -> Tuple[float, flo
     obliquity_correction = mean_obliquity_of_ecliptic + jnp.radians(
         0.00256 * jnp.cos(jnp.radians(125.04 - 1934.136 * julian_century))
     )
+    # print('G', mean_obliquity_of_ecliptic, obliquity_correction)
+
 
     var_y = jnp.tan(obliquity_correction / 2.0) ** 2
     eccentricity_earth = 0.016708634 - julian_century * (0.000042037 + 0.0000001267 * julian_century)
+    # print('H', var_y, eccentricity_earth)
 
     equation_of_time = 4.0 * (var_y * sin2l0 - 2.0 * eccentricity_earth * sinm0 + 4.0 * eccentricity_earth * var_y * sinm0 * cos2l0 - 0.5 * var_y * var_y * sin4l0 - 1.25 * eccentricity_earth * eccentricity_earth * sin2m0)
+    # print('I', equation_of_time)
 
-    hour_angle = jnp.radians(jnp.fmod(1440.0 * fraction_of_day + jnp.degrees(equation_of_time) + 4.0 * latlng.lng, 1440.0)) / 4.0
+    hour_angle = jnp.radians(jnp.fmod(1440.0 * fraction_of_day + jnp.degrees(equation_of_time) + 4.0 * jnp.degrees(latlng.lng), 1440.0)) / 4.0
     hour_angle = jnp.where(hour_angle < 0, hour_angle + jnp.pi, hour_angle - jnp.pi)
+    # print('J', hour_angle)
 
     eq_of_center_sun = jnp.radians(sinm0 * (1.914602 - julian_century * (0.004817 + 0.000014 * julian_century)) + sin2m0 * (0.019993 - 0.000101 * julian_century) + sin3m0 * 0.000289)
     true_long_sun = geometric_mean_long_sun + eq_of_center_sun
+    # print('K', eq_of_center_sun, true_long_sun)
     apparent_long_sun = true_long_sun - jnp.radians(0.00569 - 0.00478 * jnp.sin(jnp.radians(125.04 - 1934.136 * julian_century)))
     declination_sun = jnp.arcsin(jnp.sin(obliquity_correction) * jnp.sin(apparent_long_sun))
+    # print("L", apparent_long_sun, declination_sun)
 
     zenith_angle = jnp.arccos(
         jnp.sin(latlng.lat) * jnp.sin(declination_sun) + jnp.cos(latlng.lat) * jnp.cos(declination_sun) * jnp.cos(hour_angle)
     )
     el_uncorrected_deg = 90.0 - jnp.degrees(zenith_angle)
+    # print(f'{zenith_angle=}, {el_uncorrected_deg=}')
 
     atmospheric_refraction = jnp.where(
         el_uncorrected_deg > 85.0, 0,
@@ -214,12 +230,22 @@ def solar_calculator(latlng: JaxLatLng, time_seconds: float) -> Tuple[float, flo
             )
         )
     )
+    # print("el_uncorrected_deg", el_uncorrected_deg)
+    # print("atmospheric_refraction", atmospheric_refraction)
 
     el_deg = el_uncorrected_deg + atmospheric_refraction / 3600.0
+    # print("el_deg", el_deg)
 
+    # print(f'({latlng.lat:0.3f}*cos({zenith_angle:0.3f})-sin({declination_sun:0.3f})) / cos({latlng.lat:0.3f}) * sin({zenith_angle:0.3f})')
+    # print(f'({jnp.sin(latlng.lat):0.5f}*{jnp.cos(zenith_angle):0.5f}-{jnp.sin(declination_sun):0.5f})) / ({jnp.cos(latlng.lat)} * {jnp.sin(zenith_angle):0.5f})')
+    # print(f"In jax solar, latlng.lat: {latlng.lat}, zenith_angle: {zenith_angle}, declination_sun: {declination_sun}")
+    # print(f'in jax solar: ({(jnp.sin(latlng.lat)*jnp.cos(zenith_angle)-jnp.sin(declination_sun))}) / ({jnp.cos(latlng.lat) * jnp.sin(zenith_angle)})')
     cos_az = (jnp.sin(latlng.lat) * jnp.cos(zenith_angle) - jnp.sin(declination_sun)) / (jnp.cos(latlng.lat) * jnp.sin(zenith_angle))
+    # print("ccos_az", cos_az)
     az_unwrapped = jnp.arccos(jnp.clip(cos_az, -1.0, 1.0))
+    # print("az_unwrapped", az_unwrapped)
     az_deg = jnp.where(hour_angle > 0, jnp.degrees(az_unwrapped) + 180.0, 180.0 - jnp.degrees(az_unwrapped))
+    # print("az_deg", az_deg)
 
     flux = 1366.0 * (1 + 0.5 * (((1 + eccentricity_earth) / (1 - eccentricity_earth))**2 - 1) * jnp.cos(geometric_mean_anomaly_sun))
 
