@@ -7,6 +7,8 @@ import numpy as np
 import datetime as dt
 import time
 import jax
+# jax.config.update("jax_enable_x64", True)
+
 
 def test_drem():
     test_cases = [
@@ -62,7 +64,6 @@ def test_seconds_to_date():
 # test_seconds_to_date()
 
 def test_solar_calculator():
-    jax.config.update("jax_enable_x64", True)
     # Define test cases as tuples of (latitude in radians, longitude in radians, datetime object)
     test_cases = [
         (np.radians(40.7128), np.radians(-74.0060), dt.datetime(2024, 6, 21, 12, 0, 0, tzinfo=dt.timezone.utc)),  # New York, summer solstice
@@ -98,4 +99,5 @@ def test_solar_calculator():
         print("-" * 40)
         # input()
 
-test_solar_calculator()
+# test_solar_calculator()
+

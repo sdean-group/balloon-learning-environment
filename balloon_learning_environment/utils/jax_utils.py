@@ -2,6 +2,7 @@ import jax.numpy as jnp
 from balloon_learning_environment.utils import constants
 from balloon_learning_environment.utils import units
 import jax
+from jax import lax
 import jax.numpy as jnp
 import math
 from typing import Tuple
@@ -10,6 +11,10 @@ import s2sphere as s2
 from jax.tree_util import register_pytree_node_class
 
 from typing import Tuple
+
+#####
+# Solar.py
+#####
 
 # --- Physics Constants ---
 
@@ -20,76 +25,95 @@ UNIVERSAL_GAS_CONSTANT: float = 8.3144621  # [J/(mol.K)]
 DRY_AIR_MOLAR_MASS: float = 0.028964922481160  # Dry Air. [kg/mol]
 HE_MOLAR_MASS: float = 0.004002602  # Helium.  [kg/mol]
 DRY_AIR_SPECIFIC_GAS_CONSTANT: float = (
-UNIVERSAL_GAS_CONSTANT / DRY_AIR_MOLAR_MASS)  # [J/(kg.K)]
+    UNIVERSAL_GAS_CONSTANT / DRY_AIR_MOLAR_MASS
+)  # [J/(kg.K)]
+MIN_SOLAR_EL_DEG = -4.242
+_SOLAR_VIEW_FACTOR = 0.25
+_EARTH_VIEW_FACTOR = 0.4605
+_PE01_REFLECTIVITY = 0.0291
+_PE01_ABSORPTIVITY_SOLAR = 0.01435
+_PE01_ABSORPTIVITY_IR_BASE = 0.04587
+_PE01_ABSORPTIVITY_IR_D_TEMPERATURE = 0.000232  # [1/K]
+_PE01_ABSORPTIVITY_IR_REF_TEMPERATURE = 210  # [K]
+_PE01_FILM_SPECIFIC_HEAT = 1500  # [J/(kg.K)]
+
+_STEFAN_BOLTZMAN = 0.000000056704  # [W/(m^2.K^4)]
+_UNIVERSAL_GAS_CONSTANT = 8.3144621  # [J/(mol.K)]
+_DRY_AIR_MOLAR_MASS = 0.028964922481160  # Dry Air. [kg/mol]
 
 
 def drem(x, y):
     """Computes remainder of x / y, rounding to nearest integer."""
     return x - jnp.round(x / y) * y
 
+
 class JaxLatLng:
     def __init__(self, lat, lng):
-        """ expects lat, lng to be in radians """
-        self.lat = lat 
+        """expects lat, lng to be in radians"""
+        self.lat = lat
         self.lng = lng
 
     @classmethod
     def from_radians(cls, lat, lng):
         return cls(lat, lng)
 
-    def tree_flatten(self): 
+    def tree_flatten(self):
         return (self.lat, self.lng), {}
-    
+
     def normalized(self):
         return self.__class__(
-            jnp.clip(self.lat, min=-jnp.pi/2, max=jnp.pi/2),
-            drem(self.lng, 2 * math.pi))
+            jnp.clip(self.lat, min=-jnp.pi / 2, max=jnp.pi / 2),
+            drem(self.lng, 2 * math.pi),
+        )
 
     @classmethod
-    def tree_unflatten(cls, aux_data, children): 
+    def tree_unflatten(cls, aux_data, children):
         return cls(*children)
+
 
 # s2.LatLng
 
 register_pytree_node_class(JaxLatLng)
 
-_EARTH_RADIUS = 6371 # kilometers
-def calculate_jax_latlng_from_offset(center_latlng: JaxLatLng,
-                                 x: 'kilometers',
-                                 y: 'kilometers') -> JaxLatLng:
-  """Calculates a new lat lng given an origin and x y offsets.
+_EARTH_RADIUS = 6371  # kilometers
 
-  Args:
-    center_latlng: The starting latitude and longitude.
-    x: An offset from center_latlng parallel to longitude. in kilometers
-    y: An offset from center_latlng parallel to latitude. in kilometers
 
-  Returns:
-    A new latlng that is the specified distance from the start latlng.
-  """
-  # x and y are swapped to give heading with 0 degrees = North.
-  # This is equivalent to pi / 2 - atan2(y, x).
-  heading = jnp.atan2(x, y)  # In radians.
-  angle = jnp.linalg.norm(jnp.array([x, y])).item() / _EARTH_RADIUS  # In radians.
+def calculate_jax_latlng_from_offset(
+    center_latlng: JaxLatLng, x: "kilometers", y: "kilometers"
+) -> JaxLatLng:
+    """Calculates a new lat lng given an origin and x y offsets.
+
+    Args:
+      center_latlng: The starting latitude and longitude.
+      x: An offset from center_latlng parallel to longitude. in kilometers
+      y: An offset from center_latlng parallel to latitude. in kilometers
+
+    Returns:
+      A new latlng that is the specified distance from the start latlng.
+    """
+    # x and y are swapped to give heading with 0 degrees = North.
+    # This is equivalent to pi / 2 - atan2(y, x).
+    heading = jnp.atan2(x, y)  # In radians.
+    angle = jnp.linalg.norm(jnp.array([x, y])).item() / _EARTH_RADIUS  # In radians.
     # units.relative_distance is a Distance object
-    #_EARTH_RADIUS = units.Distance(km=6371)
-    # idea is Distance / Distance is 
-  cos_angle = jnp.cos(angle)
-  sin_angle = jnp.sin(angle)
-  sin_from_lat = jnp.sin(center_latlng.lat)
-  cos_from_lat = jnp.cos(center_latlng.lat)
+    # _EARTH_RADIUS = units.Distance(km=6371)
+    # idea is Distance / Distance is
+    cos_angle = jnp.cos(angle)
+    sin_angle = jnp.sin(angle)
+    sin_from_lat = jnp.sin(center_latlng.lat)
+    cos_from_lat = jnp.cos(center_latlng.lat)
 
-  sin_lat = (cos_angle * sin_from_lat +
-             sin_angle * cos_from_lat * jnp.cos(heading))
-  d_lng = jnp.atan2(sin_angle * cos_from_lat * jnp.sin(heading),
-                     cos_angle - sin_from_lat * sin_lat)
+    sin_lat = cos_angle * sin_from_lat + sin_angle * cos_from_lat * jnp.cos(heading)
+    d_lng = jnp.atan2(
+        sin_angle * cos_from_lat * jnp.sin(heading), cos_angle - sin_from_lat * sin_lat
+    )
 
-  new_lat = jnp.asin(sin_lat)
-  # TODO: convert following line to jax
-  new_lat = min(max(new_lat, -jnp.pi / 2.0), jnp.pi / 2.0)
-  new_lng = center_latlng.lng + d_lng
+    new_lat = jnp.asin(sin_lat)
+    # TODO: convert following line to jax
+    new_lat = min(max(new_lat, -jnp.pi / 2.0), jnp.pi / 2.0)
+    new_lng = center_latlng.lng + d_lng
 
-  return JaxLatLng.from_radians(new_lat, new_lng).normalized()
+    return JaxLatLng.from_radians(new_lat, new_lng).normalized()
 
 
 def timestamp_to_date_components_jax(seconds: float):
@@ -105,13 +129,13 @@ def timestamp_to_date_components_jax(seconds: float):
     """
     # Days since Unix epoch (1970-01-01)
     days = jnp.floor(seconds / 86400.0)
-    
+
     # Remaining seconds within the current day
     seconds_in_day = seconds % 86400.0
     hour = jnp.floor(seconds_in_day / 3600).astype(int)
     minute = jnp.floor((seconds_in_day % 3600) / 60).astype(int)
     second = jnp.floor(seconds_in_day % 60).astype(int)
-    
+
     # Julian day to Gregorian calendar conversion
     julian_day = days + 2440587.5  # Unix epoch to Julian day
     f = julian_day + 0.5
@@ -130,7 +154,10 @@ def timestamp_to_date_components_jax(seconds: float):
 
     return year, month, day
 
-def solar_calculator(latlng: JaxLatLng, time_seconds: float) -> Tuple[float, float, float]:
+
+def solar_calculator(
+    latlng: JaxLatLng, time_seconds: float
+) -> Tuple[float, float, float]:
     """
     Computes solar elevation, azimuth, and flux given latitude/longitude and time in seconds.
 
@@ -148,18 +175,22 @@ def solar_calculator(latlng: JaxLatLng, time_seconds: float) -> Tuple[float, flo
     #     raise ValueError(f'solar_calculator: latlng is invalid: {latlng}.')
 
     # Compute fraction_of_day from time in seconds.
-    jax.config.update("jax_enable_x64", True)
     # fraction_of_day = (time_seconds.astype(int) % NUM_SECONDS_PER_DAY) / NUM_SECONDS_PER_DAY
-    fraction_of_day = (time_seconds % NUM_SECONDS_PER_DAY) / NUM_SECONDS_PER_DAY # no jit
+    fraction_of_day = (
+        time_seconds % NUM_SECONDS_PER_DAY
+    ) / NUM_SECONDS_PER_DAY  # no jit
     # print('A', fraction_of_day)
-    
+
     # Compute Julian day number from Gregorian calendar.
     year, month, day = timestamp_to_date_components_jax(time_seconds)
     # print('B', year, month, day)
     julian_day_number = (
-        367.0 * year - jnp.floor(7.0 * (year + jnp.floor((month + 9.0) / 12.0)) / 4.0)
+        367.0 * year
+        - jnp.floor(7.0 * (year + jnp.floor((month + 9.0) / 12.0)) / 4.0)
         - jnp.floor(3.0 * (jnp.floor((year + (month - 9.0) / 7.0) / 100.0) + 1.0) / 4.0)
-        + jnp.floor(275.0 * month / 9.0) + day + 1721028.5
+        + jnp.floor(275.0 * month / 9.0)
+        + day
+        + 1721028.5
     )
     # print('C', julian_day_number)
 
@@ -186,49 +217,101 @@ def solar_calculator(latlng: JaxLatLng, time_seconds: float) -> Tuple[float, flo
     # print('F', geometric_mean_anomaly_sun, sinm0, sin2m0, sin3m0)
 
     mean_obliquity_of_ecliptic = jnp.radians(
-        23.0 + (26.0 + ((21.448 - julian_century * (46.815 + julian_century * (0.00059 - julian_century * 0.001813))) / 60.0)) / 60.0
+        23.0
+        + (
+            26.0
+            + (
+                (
+                    21.448
+                    - julian_century
+                    * (46.815 + julian_century * (0.00059 - julian_century * 0.001813))
+                )
+                / 60.0
+            )
+        )
+        / 60.0
     )
     obliquity_correction = mean_obliquity_of_ecliptic + jnp.radians(
         0.00256 * jnp.cos(jnp.radians(125.04 - 1934.136 * julian_century))
     )
     # print('G', mean_obliquity_of_ecliptic, obliquity_correction)
 
-
     var_y = jnp.tan(obliquity_correction / 2.0) ** 2
-    eccentricity_earth = 0.016708634 - julian_century * (0.000042037 + 0.0000001267 * julian_century)
+    eccentricity_earth = 0.016708634 - julian_century * (
+        0.000042037 + 0.0000001267 * julian_century
+    )
     # print('H', var_y, eccentricity_earth)
 
-    equation_of_time = 4.0 * (var_y * sin2l0 - 2.0 * eccentricity_earth * sinm0 + 4.0 * eccentricity_earth * var_y * sinm0 * cos2l0 - 0.5 * var_y * var_y * sin4l0 - 1.25 * eccentricity_earth * eccentricity_earth * sin2m0)
+    equation_of_time = 4.0 * (
+        var_y * sin2l0
+        - 2.0 * eccentricity_earth * sinm0
+        + 4.0 * eccentricity_earth * var_y * sinm0 * cos2l0
+        - 0.5 * var_y * var_y * sin4l0
+        - 1.25 * eccentricity_earth * eccentricity_earth * sin2m0
+    )
     # print('I', equation_of_time)
 
-    hour_angle = jnp.radians(jnp.fmod(1440.0 * fraction_of_day + jnp.degrees(equation_of_time) + 4.0 * jnp.degrees(latlng.lng), 1440.0)) / 4.0
+    hour_angle = (
+        jnp.radians(
+            jnp.fmod(
+                1440.0 * fraction_of_day
+                + jnp.degrees(equation_of_time)
+                + 4.0 * jnp.degrees(latlng.lng),
+                1440.0,
+            )
+        )
+        / 4.0
+    )
     hour_angle = jnp.where(hour_angle < 0, hour_angle + jnp.pi, hour_angle - jnp.pi)
     # print('J', hour_angle)
 
-    eq_of_center_sun = jnp.radians(sinm0 * (1.914602 - julian_century * (0.004817 + 0.000014 * julian_century)) + sin2m0 * (0.019993 - 0.000101 * julian_century) + sin3m0 * 0.000289)
+    eq_of_center_sun = jnp.radians(
+        sinm0 * (1.914602 - julian_century * (0.004817 + 0.000014 * julian_century))
+        + sin2m0 * (0.019993 - 0.000101 * julian_century)
+        + sin3m0 * 0.000289
+    )
     true_long_sun = geometric_mean_long_sun + eq_of_center_sun
     # print('K', eq_of_center_sun, true_long_sun)
-    apparent_long_sun = true_long_sun - jnp.radians(0.00569 - 0.00478 * jnp.sin(jnp.radians(125.04 - 1934.136 * julian_century)))
-    declination_sun = jnp.arcsin(jnp.sin(obliquity_correction) * jnp.sin(apparent_long_sun))
-    # print("L", apparent_long_sun, declination_sun)
+    apparent_long_sun = true_long_sun - jnp.radians(
+        0.00569 - 0.00478 * jnp.sin(jnp.radians(125.04 - 1934.136 * julian_century))
+    )
+    declination_sun = jnp.arcsin(
+        jnp.sin(obliquity_correction) * jnp.sin(apparent_long_sun)
+    )
+    # print("L", apparent_long_sun, jnp.sin(obliquity_correction) * jnp.sin(apparent_long_sun), declination_sun)
 
     zenith_angle = jnp.arccos(
-        jnp.sin(latlng.lat) * jnp.sin(declination_sun) + jnp.cos(latlng.lat) * jnp.cos(declination_sun) * jnp.cos(hour_angle)
+        jnp.sin(latlng.lat) * jnp.sin(declination_sun)
+        + jnp.cos(latlng.lat) * jnp.cos(declination_sun) * jnp.cos(hour_angle)
     )
     el_uncorrected_deg = 90.0 - jnp.degrees(zenith_angle)
     # print(f'{zenith_angle=}, {el_uncorrected_deg=}')
 
     atmospheric_refraction = jnp.where(
-        el_uncorrected_deg > 85.0, 0,
+        el_uncorrected_deg > 85.0,
+        0,
         jnp.where(
             el_uncorrected_deg > 5.0,
-            (58.1 / jnp.tan(jnp.radians(el_uncorrected_deg)) - 0.07 / jnp.tan(jnp.radians(el_uncorrected_deg))**3 + 0.000086 / jnp.tan(jnp.radians(el_uncorrected_deg))**5),
+            (
+                58.1 / jnp.tan(jnp.radians(el_uncorrected_deg))
+                - 0.07 / jnp.tan(jnp.radians(el_uncorrected_deg)) ** 3
+                + 0.000086 / jnp.tan(jnp.radians(el_uncorrected_deg)) ** 5
+            ),
             jnp.where(
                 el_uncorrected_deg > -0.575,
-                1735.0 + el_uncorrected_deg * (-518.2 + el_uncorrected_deg * (103.4 + el_uncorrected_deg * (-12.79 + el_uncorrected_deg * 0.711))),
-                -20.772 / jnp.tan(jnp.radians(el_uncorrected_deg))
-            )
-        )
+                1735.0
+                + el_uncorrected_deg
+                * (
+                    -518.2
+                    + el_uncorrected_deg
+                    * (
+                        103.4
+                        + el_uncorrected_deg * (-12.79 + el_uncorrected_deg * 0.711)
+                    )
+                ),
+                -20.772 / jnp.tan(jnp.radians(el_uncorrected_deg)),
+            ),
+        ),
     )
     # print("el_uncorrected_deg", el_uncorrected_deg)
     # print("atmospheric_refraction", atmospheric_refraction)
@@ -239,14 +322,395 @@ def solar_calculator(latlng: JaxLatLng, time_seconds: float) -> Tuple[float, flo
     # print(f'({latlng.lat:0.3f}*cos({zenith_angle:0.3f})-sin({declination_sun:0.3f})) / cos({latlng.lat:0.3f}) * sin({zenith_angle:0.3f})')
     # print(f'({jnp.sin(latlng.lat):0.5f}*{jnp.cos(zenith_angle):0.5f}-{jnp.sin(declination_sun):0.5f})) / ({jnp.cos(latlng.lat)} * {jnp.sin(zenith_angle):0.5f})')
     # print(f"In jax solar, latlng.lat: {latlng.lat}, zenith_angle: {zenith_angle}, declination_sun: {declination_sun}")
+    # print(f"In jax solar: ({jnp.sin(latlng.lat)*jnp.cos(zenith_angle)}-{jnp.sin(declination_sun)}) / ({jnp.cos(latlng.lat) * jnp.sin(zenith_angle)})")
     # print(f'in jax solar: ({(jnp.sin(latlng.lat)*jnp.cos(zenith_angle)-jnp.sin(declination_sun))}) / ({jnp.cos(latlng.lat) * jnp.sin(zenith_angle)})')
-    cos_az = (jnp.sin(latlng.lat) * jnp.cos(zenith_angle) - jnp.sin(declination_sun)) / (jnp.cos(latlng.lat) * jnp.sin(zenith_angle))
+    cos_az = (
+        jnp.sin(latlng.lat) * jnp.cos(zenith_angle) - jnp.sin(declination_sun)
+    ) / (jnp.cos(latlng.lat) * jnp.sin(zenith_angle))
     # print("ccos_az", cos_az)
     az_unwrapped = jnp.arccos(jnp.clip(cos_az, -1.0, 1.0))
     # print("az_unwrapped", az_unwrapped)
-    az_deg = jnp.where(hour_angle > 0, jnp.degrees(az_unwrapped) + 180.0, 180.0 - jnp.degrees(az_unwrapped))
+    az_deg = jnp.where(
+        hour_angle > 0,
+        jnp.degrees(az_unwrapped) + 180.0,
+        180.0 - jnp.degrees(az_unwrapped),
+    )
     # print("az_deg", az_deg)
 
-    flux = 1366.0 * (1 + 0.5 * (((1 + eccentricity_earth) / (1 - eccentricity_earth))**2 - 1) * jnp.cos(geometric_mean_anomaly_sun))
+    flux = 1366.0 * (
+        1
+        + 0.5
+        * (((1 + eccentricity_earth) / (1 - eccentricity_earth)) ** 2 - 1)
+        * jnp.cos(geometric_mean_anomaly_sun)
+    )
 
     return el_deg, az_deg, flux
+
+
+####
+# Thermal.py
+####
+
+
+def solar_atmospheric_attenuation(el_deg: float, pressure_altitude_pa: float) -> float:
+    """Computes atmospheric attenuation of incoming solar radiation.
+
+    Args:
+    el_deg: Solar elevation in degrees.
+    pressure_altitude_pa: Balloon's pressure altitude in Pascals.
+
+    Returns:
+    attenuation_factor: Solar atmospheric attenuation factor in range [0, 1].
+    """
+
+    # Check if solar elevation is within range [-90, 90] deg.
+    # if el_deg > 90.0 or el_deg < -90.0:
+    #     raise ValueError('solar_atmospheric_attenuation: '
+    #                     'Solar elevation out of expected range [-90, 90] deg.')
+
+    # # Check if pressure altitude [Pa] is within range [0, 101325] Pa.
+    # if pressure_altitude_pa > 101325.0 or pressure_altitude_pa < 0.0:
+    #     raise ValueError('solar_atmospheric_attenuation: '
+    #                     'Pressure altitude out of expected range [0, 101325] Pa.')
+
+    # If solar elevation is below min solar horizon return 0.
+    # if el_deg < MIN_SOLAR_EL_DEG:
+    #     return 0.0
+
+    # Compute airmass.
+    tmp_sin_elev = 614.0 * jnp.sin(math.radians(el_deg))
+    airmass = (
+        0.34764
+        * (pressure_altitude_pa / 101325.0)
+        * (math.sqrt(1229.0 + tmp_sin_elev * tmp_sin_elev) - tmp_sin_elev)
+    )
+
+    # Compute atmospheric attenuation factor.
+    return jnp.where(
+        el_deg < MIN_SOLAR_EL_DEG,
+        0.0,
+        0.5 * (jnp.exp(-0.65 * airmass) + jnp.exp(-0.95 * airmass)),
+    )
+
+
+def total_absorptivity(absorptivity: float, reflectivity: float) -> float:
+    """Compute total internal balloon absorptivity/emissivity factor.
+
+    This function computes total absorptivity or total emissivity. For the
+    absorptivity process, the dynamics are as follows:
+
+    --> From the radiation hitting the surface, R is reflected outward, A is
+        absorbed, and the rest, T, is "transmitted" through the surface,
+        where T = 1 - R - A.
+    --> From the amount transmitted through the surface, T, a portion TA is
+        absorbed, a portion TR is reflected back into the sphere, and the
+        rest (TT) leaves the sphere.
+    --> From the amount reflected into the sphere, TR, a portion TRA is
+        absorbed, a portion TRR is reflected back into the sphere, and the
+        rest (TRT) is lost.
+    --> Continuing this process to infinity and adding up all the aborbed
+        amounts gives the following:
+
+           A_total = A + TA + TRA + TR^2 A + TR^3 A + ...
+                   = A + TA (1 + R + R^2 + R^3 + ...)
+                   = A (1 + T / (1 - R))
+
+    Similarly, we can analyze the emissivity process:
+
+    --> From the radiation emitted by the surface, A is emitted outwards where
+        E = A = emissivity, and A is emitted inwards (double radiation).
+    --> From the inwards amount, AA is re-absorbed, AR is internally reflected
+        and AT is emitted through the film.
+    --> From the internally reflected amount, ARA is re-absorbed, ARR is
+        internally reflected, and ART is emitted through the film.
+    --> Continuing this process to infinity and adding up all the outwards
+        emissions gives the following:
+
+           E_total = A + AT + ART + AR^2T + AR^3 T + ...
+                   = A + AT (1 + R + R^2 + R^3 + ...)
+                   = A (1 + T / (1 - R))
+
+    Noting that E_total and A_total are equivalent, we can use this function
+    for both incoming and outgoing emissions.
+
+    Args:
+      absorptivity: Balloon film's absorptivity/emissivity.
+      reflectivity: Balloon film's reflectivity.
+
+    Returns:
+      total_absorptivity_factor: Factor of radiation absorbed/emitted by balloon.
+    """
+    transmisivity = 1.0 - absorptivity - reflectivity
+    total_absorptivity_factor = absorptivity * (
+        1.0 + transmisivity / (1.0 - reflectivity)
+    )
+    #   if total_absorptivity_factor < 0.0 or total_absorptivity_factor > 1.0:
+    #     raise ValueError(
+    #         'total_absorptivity: '
+    #         'Computed total absorptivity factor out of expected range [0, 1].')
+
+    return total_absorptivity_factor
+
+
+def absorptivity_ir(object_temperature_k: float) -> float:
+    """Compute balloon IR absorptivity/emissivity given black body temperature.
+
+    This function computes IR absorptivity/emissivity given the radiative object's
+    black body temperature. We assume PE01 balloon film and use a linear model.
+
+    Args:
+      object_temperature_k: Object's black body temperature [K].
+
+    Returns:
+      absorptivity: Absorptivity factor in IR spectrum.
+    """
+    return _PE01_ABSORPTIVITY_IR_BASE + _PE01_ABSORPTIVITY_IR_D_TEMPERATURE * (
+        object_temperature_k - _PE01_ABSORPTIVITY_IR_REF_TEMPERATURE
+    )
+
+
+def black_body_flux_to_temperature(flux: float) -> float:
+    """Compute corresponding temperature given black body flux.
+
+    Args:
+      flux: Black body's flux [W/m^2].
+
+    Returns:
+      temperature_k: Black body's temperature [K].
+    """
+    return (flux / _STEFAN_BOLTZMAN) ** 0.25
+
+
+def black_body_temperature_to_flux(temperature_k: float) -> float:
+    """Compute corresponding flux given black body temperature.
+
+    Args:
+      temperature_k: Black body's temperature [K].
+
+    Returns:
+      flux: Black body's flux [W/m^2].
+    """
+    return _STEFAN_BOLTZMAN * temperature_k**4
+
+
+def convective_heat_air_factor(
+    balloon_radius: float,
+    balloon_temperature_k: float,
+    ambient_temperature_k: float,
+    pressure_altitude_pa: float,
+) -> float:
+    """Convective heat air factor."""
+    viscosity = (
+        1.458e-6 * (ambient_temperature_k**1.5) / (ambient_temperature_k + 110.4)
+    )
+    conductivity = 0.0241 * ((ambient_temperature_k / 273.15) ** 0.9)
+    prandtl = 0.804 - 3.25e-4 * ambient_temperature_k
+    air_density = (
+        pressure_altitude_pa
+        * _DRY_AIR_MOLAR_MASS
+        / (_UNIVERSAL_GAS_CONSTANT * ambient_temperature_k)
+    )
+
+    grashof = (
+        9.80665
+        * (air_density**2)
+        * ((2 * balloon_radius) ** 3)
+        / (ambient_temperature_k * (viscosity**2))
+    ) * jnp.abs(ambient_temperature_k - balloon_temperature_k)
+    rayleigh = prandtl * grashof
+    nusselt = 2 + 0.457 * (rayleigh**0.25) + ((1 + 2.69e-8 * rayleigh) ** (1.0 / 12.0))
+    k_heat_transfer = nusselt * conductivity / (2 * balloon_radius)
+
+    return k_heat_transfer * (ambient_temperature_k - balloon_temperature_k)
+
+
+def convective_heat_air_factor(
+    balloon_radius: float,
+    balloon_temperature_k: float,
+    ambient_temperature_k: float,
+    pressure_altitude_pa: float,
+) -> float:
+    """Convective heat air factor."""
+    viscosity = (
+        1.458e-6 * (ambient_temperature_k**1.5) / (ambient_temperature_k + 110.4)
+    )
+    conductivity = 0.0241 * ((ambient_temperature_k / 273.15) ** 0.9)
+    prandtl = 0.804 - 3.25e-4 * ambient_temperature_k
+    air_density = (
+        pressure_altitude_pa
+        * _DRY_AIR_MOLAR_MASS
+        / (_UNIVERSAL_GAS_CONSTANT * ambient_temperature_k)
+    )
+
+    grashof = (
+        9.80665
+        * (air_density**2)
+        * ((2 * balloon_radius) ** 3)
+        / (ambient_temperature_k * (viscosity**2))
+    ) * jnp.abs(ambient_temperature_k - balloon_temperature_k)
+    rayleigh = prandtl * grashof
+    nusselt = 2 + 0.457 * (rayleigh**0.25) + ((1 + 2.69e-8 * rayleigh) ** (1.0 / 12.0))
+    k_heat_transfer = nusselt * conductivity / (2 * balloon_radius)
+
+    return k_heat_transfer * (ambient_temperature_k - balloon_temperature_k)
+
+
+def d_balloon_temperature_dt(
+    balloon_volume: float,
+    balloon_mass: float,
+    balloon_temperature_k: float,
+    ambient_temperature_k: float,
+    pressure_altitude_pa: float,
+    solar_elevation_deg: float,
+    solar_flux: float,
+    earth_flux: float,
+) -> float:
+    """Compute d_balloon_temperature / dt. Assumes PE01 film.
+
+    Args:
+      balloon_volume: Balloon volume [m^3].
+      balloon_mass: Balloon envelope mass [kg].
+      balloon_temperature_k: Balloon temperature [K].
+      ambient_temperature_k: Ambient temperature around the balloon [K].
+      pressure_altitude_pa: Balloon's pressure altitude [Pa].
+      solar_elevation_deg: Solar elevation [deg].
+      solar_flux: Solar flux [W/m^2].
+      earth_flux: Earth radiation experienced at balloon [W/m^2].
+
+    Returns:
+      d_balloon_temperature / dt: Derivative of balloon temperature [K/s].
+    """
+
+    # Compute balloon radius and surface area. Assumes spherical balloon.
+    balloon_radius = (3 * balloon_volume / (4 * jnp.pi)) ** (1 / 3)
+    balloon_area = 4 * jnp.pi * balloon_radius * balloon_radius
+
+    # Compute atmospheric attenuation.
+    atm_attenuation = solar_atmospheric_attenuation(
+        solar_elevation_deg, pressure_altitude_pa
+    )
+    # Compute solar radiative heat.
+    q_solar = (
+        solar_flux
+        * atm_attenuation
+        * _SOLAR_VIEW_FACTOR
+        * balloon_area
+        * total_absorptivity(_PE01_ABSORPTIVITY_SOLAR, _PE01_REFLECTIVITY)
+    )
+
+    # Compute earth radiative heat.
+    q_earth = (
+        earth_flux
+        * _EARTH_VIEW_FACTOR
+        * balloon_area
+        * total_absorptivity(
+            absorptivity_ir(black_body_flux_to_temperature(earth_flux)),
+            _PE01_REFLECTIVITY,
+        )
+    )
+
+    # Compute balloon emissions given balloon temperature.
+    q_emitted = (
+        black_body_temperature_to_flux(balloon_temperature_k)
+        * balloon_area
+        * total_absorptivity(absorptivity_ir(balloon_temperature_k), _PE01_REFLECTIVITY)
+    )
+
+    # Compute external convective heat given balloon temperature.
+    q_convective = balloon_area * convective_heat_air_factor(
+        balloon_radius,
+        balloon_temperature_k,
+        ambient_temperature_k,
+        pressure_altitude_pa,
+    )
+
+    # Compute derivative of balloon temperature give total heat loads and mass.
+    return (q_solar + q_earth + q_convective - q_emitted) / (
+        _PE01_FILM_SPECIFIC_HEAT * balloon_mass
+    )
+
+
+####
+# Balloon.py
+####
+
+
+def calculate_superpressure_and_volume(
+    mols_lift_gas: float,
+    mols_air: float,
+    internal_temperature: float,
+    pressure: float,
+    envelope_volume_base: float,
+    envelope_volume_dv_pressure: float,
+) -> Tuple[float, float]:
+    """Calculates the current superpressure and volume of the balloon.
+
+    Args:
+      mols_lift_gas: Mols of helium within the balloon envelope [mols].
+      mols_air: Mols of air within the ballonet [mols].
+      internal_temperature: The temperature of the gas in the envelope.
+      pressure: Ambient pressure of the balloon [Pa].
+      envelope_volume_base: The y-intercept for the balloon envelope volume
+        model [m^3].
+      envelope_volume_dv_pressure: The slope for the balloon envelope volume
+        model.
+
+    Returns:
+      An (envelope_volume, superpressure) tuple.
+    """
+    envelope_volume = 0.0
+    superpressure = 0.0
+
+    # Compute the unconstrained volume of the balloon which is
+    # (n_gas + n_air) * R * T_gas / P_amb. This is the volume the balloon would
+    # expand to if the material holding the lift gas didn't give any resistence,
+    # e.g., to a first-order approximation a latex weather ballon.
+    unconstrained_volume = (
+        (mols_lift_gas + mols_air)
+        * UNIVERSAL_GAS_CONSTANT
+        * internal_temperature
+        / pressure
+    )
+
+    # if unconstrained_volume <= envelope_volume_base:
+    #     # Not fully inflated.
+    #     envelope_volume = unconstrained_volume
+    #     superpressure = 0.0
+    # else:
+    #     # System of equations for a fully inflated balloon:
+    #     #
+    #     #  V = V0 + dv_dp * (P_gas - P_amb)
+    #     #  P_gas = n * R * T_gas / V
+    #     #
+    #     # Solve the quadratic equation for volume:
+    #     b = -(envelope_volume_base - envelope_volume_dv_pressure * pressure)
+    #     c = -(envelope_volume_dv_pressure * unconstrained_volume * pressure)
+
+    #     envelope_volume = 0.5 * (-b + jnp.sqrt(b * b - 4 * c))
+    #     superpressure = pressure * unconstrained_volume / envelope_volume - pressure
+
+    def not_fully_inflated(unconstrained_volume):
+        # Case where the balloon is not fully inflated
+        return unconstrained_volume, 0.0
+
+    def fully_inflated(unconstrained_volume, envelope_volume_base, envelope_volume_dv_pressure, pressure):
+        # Case where the balloon is fully inflated
+        b = -(envelope_volume_base - envelope_volume_dv_pressure * pressure)
+        c = -(envelope_volume_dv_pressure * unconstrained_volume * pressure)
+        
+        envelope_volume = 0.5 * (-b + jnp.sqrt(b * b - 4 * c))
+        superpressure = pressure * unconstrained_volume / envelope_volume - pressure
+        return envelope_volume, superpressure
+
+    # Condition to determine if balloon is not fully inflated
+    condition = unconstrained_volume <= envelope_volume_base
+
+    # Use lax.cond for branching
+    envelope_volume, superpressure = lax.cond(
+        condition,
+        lambda op: not_fully_inflated(op[0]),
+        lambda op: fully_inflated(op[0], op[1], op[2], op[3]),
+        operand = (unconstrained_volume, envelope_volume_base, envelope_volume_dv_pressure, pressure)
+    )
+
+    return envelope_volume, superpressure
