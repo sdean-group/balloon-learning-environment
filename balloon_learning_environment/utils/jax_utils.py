@@ -10,6 +10,8 @@ import datetime as dt
 import s2sphere as s2
 from jax.tree_util import register_pytree_node_class
 
+from jax.scipy.interpolate import RegularGridInterpolator
+
 from typing import Tuple
 
 #####
@@ -324,9 +326,28 @@ def solar_calculator(
     # print(f"In jax solar, latlng.lat: {latlng.lat}, zenith_angle: {zenith_angle}, declination_sun: {declination_sun}")
     # print(f"In jax solar: ({jnp.sin(latlng.lat)*jnp.cos(zenith_angle)}-{jnp.sin(declination_sun)}) / ({jnp.cos(latlng.lat) * jnp.sin(zenith_angle)})")
     # print(f'in jax solar: ({(jnp.sin(latlng.lat)*jnp.cos(zenith_angle)-jnp.sin(declination_sun))}) / ({jnp.cos(latlng.lat) * jnp.sin(zenith_angle)})')
-    cos_az = (
-        jnp.sin(latlng.lat) * jnp.cos(zenith_angle) - jnp.sin(declination_sun)
-    ) / (jnp.cos(latlng.lat) * jnp.sin(zenith_angle))
+    def compute_cos_az(latlng, zenith_angle, declination_sun):
+        epsilon = 1e-5
+        near_pole_condition = jnp.abs(jnp.pi / 2 - jnp.abs(latlng.lat)) < epsilon
+
+        cos_az_regular = (
+            jnp.sin(latlng.lat) * jnp.cos(zenith_angle) - jnp.sin(declination_sun)
+        ) / (jnp.cos(latlng.lat) * jnp.sin(zenith_angle))
+
+        cos_az_limiting = (
+            -0.5 * jnp.cos(latlng.lat) * jnp.cos(zenith_angle)
+        ) / (jnp.sin(latlng.lat) * jnp.sin(zenith_angle))
+
+        cos_az = lax.cond(
+            near_pole_condition,
+            lambda _: cos_az_limiting,
+            lambda _: cos_az_regular,
+            operand=None
+        )
+        return cos_az
+    
+    cos_az = compute_cos_az(latlng, zenith_angle, declination_sun)
+    
     # print("ccos_az", cos_az)
     az_unwrapped = jnp.arccos(jnp.clip(cos_az, -1.0, 1.0))
     # print("az_unwrapped", az_unwrapped)
@@ -391,6 +412,51 @@ def solar_atmospheric_attenuation(el_deg: float, pressure_altitude_pa: float) ->
         0.0,
         0.5 * (jnp.exp(-0.65 * airmass) + jnp.exp(-0.95 * airmass)),
     )
+
+def balloon_shadow(el_deg: float, panel_height_below_balloon_m: float) -> float:
+  """Computes shadowing factor on solar panels due to balloon film.
+
+  Args:
+    el_deg: Solar elevation in degrees.
+    panel_height_below_balloon_m: Panel location below balloon in meters.
+
+  Returns:
+    shadow_factor: Balloon shadowing factor in range [0, 1].
+  """
+  balloon_radius = 8.69275
+  balloon_height = 10.41603
+
+  shadow_el_deg = jnp.degrees(
+      jnp.arctan2(
+          jnp.sqrt(panel_height_below_balloon_m *
+                    (balloon_height + panel_height_below_balloon_m)),
+          balloon_radius))
+
+  return jax.lax.cond(el_deg >= shadow_el_deg, lambda _: 0.4392, lambda _: 1.0)
+
+
+def solar_power(el_deg: float, pressure_altitude_pa: float) -> 'power in watts, float':
+  """Computes solar power produced by panels on the balloon.
+
+  Args:
+    el_deg: Solar elevation in degrees.
+    pressure_altitude_pa: Balloon's pressure altitude in Pascals.
+
+  Returns:
+    solar_power: Solar power from panels on the balloon [W].
+  """
+
+  # Get atmospheric attenuation factor.
+  attenuation = solar_atmospheric_attenuation(el_deg, pressure_altitude_pa)
+
+  # Loon balloons have 4 main solar panels mounted at 35deg and hanging at 3.3m
+  # below the balloon. There are an additional 2 panels mounted at 65deg
+  # hanging at 2.7m below the balloon. All panels have a max power of 210 W.
+  power = 210.0 * attenuation * (
+      4 * jnp.cos(math.radians(el_deg - 35)) * balloon_shadow(el_deg, 3.3) +
+      2 * jnp.cos(math.radians(el_deg - 65)) * balloon_shadow(el_deg, 2.7))
+
+  return power
 
 
 def total_absorptivity(absorptivity: float, reflectivity: float) -> float:
@@ -714,3 +780,79 @@ def calculate_superpressure_and_volume(
     )
 
     return envelope_volume, superpressure
+
+
+##########
+# acs.py
+##########
+
+# Constants
+NUM_SECONDS_PER_HOUR = 3600
+
+# Interpolator for pressure ratio to power
+_PRESSURE_RATIO_TO_POWER_INTERPOLATOR = RegularGridInterpolator(
+    (jnp.array([1.0, 1.05, 1.2, 1.25, 1.35]),),  # Pressure ratio grid
+    jnp.array([100.0, 100.0, 300.0, 400.0, 400.0]),  # Power values
+    bounds_error=False,
+    fill_value=None,  # Extrapolate
+)
+
+# Interpolator for pressure ratio and power to efficiency
+_PRESSURE_RATIO_POWER_TO_EFFICIENCY_INTERPOLATOR = RegularGridInterpolator(
+    (
+        jnp.linspace(1.05, 1.35, 13),  # Pressure ratio grid
+        jnp.linspace(100.0, 400.0, 4),  # Power grid
+    ),
+    jnp.array([
+        0.4, 0.4, 0.3, 0.2, 0.2, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000,
+        0.4, 0.3, 0.3, 0.30, 0.25, 0.23, 0.20, 0.15, 0.12, 0.10, 0.00000, 0.00000, 0.00000,
+        0.00000, 0.3, 0.25, 0.25, 0.25, 0.20, 0.20, 0.20, 0.2, 0.15, 0.13, 0.12, 0.11, 0.00000,
+        0.23, 0.23, 0.23, 0.23, 0.23, 0.20, 0.20, 0.20, 0.18, 0.16, 0.15, 0.13
+    ]).reshape(13, 4),  # Efficiency values reshaped to 2D grid
+    bounds_error=False,
+    fill_value=None,  # Extrapolate
+)
+
+# Functions
+def get_most_efficient_power(pressure_ratio: float):
+    """Lookup the optimal operating power from static tables.
+
+    Args:
+        pressure_ratio: Ratio of (balloon pressure + superpressure) to balloon
+        pressure.
+
+    Returns:
+        Optimal ACS power at current pressure ratio.
+    """
+    power = _PRESSURE_RATIO_TO_POWER_INTERPOLATOR(jnp.array([pressure_ratio]))
+    return power[0]  # Extract scalar from single-element array
+
+
+def get_fan_efficiency(pressure_ratio: float, power: float) -> float:
+    """Compute efficiency of air flow from current pressure ratio and power.
+
+    Args:
+        pressure_ratio: The pressure ratio.
+        power: The current power (watts).
+
+    Returns:
+        Efficiency of the air flow.
+    """
+    efficiency = _PRESSURE_RATIO_POWER_TO_EFFICIENCY_INTERPOLATOR(
+        jnp.array([[pressure_ratio, power]])
+    )
+    return efficiency[0] # Extract scalar from single-element array
+
+
+def get_mass_flow(power: float, efficiency: float) -> float:
+    """Compute mass flow based on power and efficiency.
+
+    Args:
+        power: The current power (watts).
+        efficiency: The fan efficiency.
+
+    Returns:
+        Mass flow rate.
+    """
+    return efficiency * power / NUM_SECONDS_PER_HOUR
+
