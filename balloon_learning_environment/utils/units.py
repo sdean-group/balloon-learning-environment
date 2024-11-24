@@ -132,6 +132,11 @@ class Distance(JaxTree):
   def __ge__(self, other: 'Distance') -> bool:
     return self.m >= other.m
 
+  def __str__(self):
+    return f"Distance(meters={self.meters})"
+  
+  def __repr__(self): return str(self)
+
 
 class Velocity:
   """A compact velocity unit."""
@@ -205,8 +210,16 @@ class Velocity:
       raise NotImplementedError(f'Cannot divide velocity by {type(other)}')
 
 
+  def __str__(self):
+    return f"Velocity(mps={self.mps})"
+  
+  def __repr__(self): return str(self)
+
 class Energy(object):
   """A compact energy class."""
+
+  def __str__(self): return f"Energy(watt_hours={self.watt_hours})"
+  def __repr__(self): return str(self)
 
   def __init__(self, *, watt_hours: float = 0.0):
     self._wh = watt_hours
@@ -263,6 +276,9 @@ class Energy(object):
 
 class Power(object):
   """A compact power class."""
+
+  def __str__(self): return f"Power(watts={self.watts})"
+  def __repr__(self): return str(self)
 
   def __init__(self, *, watts: float = 0.0):
     self._w = watts

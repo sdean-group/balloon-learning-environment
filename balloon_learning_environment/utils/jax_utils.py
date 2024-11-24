@@ -4,7 +4,6 @@ from balloon_learning_environment.utils import units
 import jax
 from jax import lax
 import jax.numpy as jnp
-import math
 from typing import Tuple
 import datetime as dt
 import s2sphere as s2
@@ -65,13 +64,17 @@ class JaxLatLng:
     def normalized(self):
         return self.__class__(
             jnp.clip(self.lat, min=-jnp.pi / 2, max=jnp.pi / 2),
-            drem(self.lng, 2 * math.pi),
+            drem(self.lng, 2 * jnp.pi),
         )
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         return cls(*children)
+    
+    def __str__(self):
+        return f"JaxLatLng(lat={self.lat}, lng={self.lng})"
 
+    def __repr__(self): return str(self)
 
 # s2.LatLng
 
@@ -96,7 +99,7 @@ def calculate_jax_latlng_from_offset(
     # x and y are swapped to give heading with 0 degrees = North.
     # This is equivalent to pi / 2 - atan2(y, x).
     heading = jnp.atan2(x, y)  # In radians.
-    angle = jnp.linalg.norm(jnp.array([x, y])).item() / _EARTH_RADIUS  # In radians.
+    angle = jnp.linalg.norm(jnp.array([x, y])) / _EARTH_RADIUS  # In radians.
     # units.relative_distance is a Distance object
     # _EARTH_RADIUS = units.Distance(km=6371)
     # idea is Distance / Distance is
@@ -112,7 +115,8 @@ def calculate_jax_latlng_from_offset(
 
     new_lat = jnp.asin(sin_lat)
     # TODO: convert following line to jax
-    new_lat = min(max(new_lat, -jnp.pi / 2.0), jnp.pi / 2.0)
+    # new_lat = jnp.min(jnp.array([jnp.max(jnp.array([new_lat, -jnp.pi / 2.0])), jnp.pi / 2.0]))
+    new_lat = jnp.clip(new_lat, -jnp.pi / 2.0, jnp.pi / 2.0)
     new_lng = center_latlng.lng + d_lng
 
     return JaxLatLng.from_radians(new_lat, new_lng).normalized()
@@ -399,11 +403,11 @@ def solar_atmospheric_attenuation(el_deg: float, pressure_altitude_pa: float) ->
     #     return 0.0
 
     # Compute airmass.
-    tmp_sin_elev = 614.0 * jnp.sin(math.radians(el_deg))
+    tmp_sin_elev = 614.0 * jnp.sin(jnp.radians(el_deg))
     airmass = (
         0.34764
         * (pressure_altitude_pa / 101325.0)
-        * (math.sqrt(1229.0 + tmp_sin_elev * tmp_sin_elev) - tmp_sin_elev)
+        * (jnp.sqrt(1229.0 + tmp_sin_elev * tmp_sin_elev) - tmp_sin_elev)
     )
 
     # Compute atmospheric attenuation factor.
@@ -432,7 +436,7 @@ def balloon_shadow(el_deg: float, panel_height_below_balloon_m: float) -> float:
                     (balloon_height + panel_height_below_balloon_m)),
           balloon_radius))
 
-  return jax.lax.cond(el_deg >= shadow_el_deg, lambda _: 0.4392, lambda _: 1.0)
+  return jax.lax.cond(el_deg >= shadow_el_deg, lambda _: 0.4392, lambda _: 1.0, operand=None)
 
 
 def solar_power(el_deg: float, pressure_altitude_pa: float) -> 'power in watts, float':
@@ -453,8 +457,8 @@ def solar_power(el_deg: float, pressure_altitude_pa: float) -> 'power in watts, 
   # below the balloon. There are an additional 2 panels mounted at 65deg
   # hanging at 2.7m below the balloon. All panels have a max power of 210 W.
   power = 210.0 * attenuation * (
-      4 * jnp.cos(math.radians(el_deg - 35)) * balloon_shadow(el_deg, 3.3) +
-      2 * jnp.cos(math.radians(el_deg - 65)) * balloon_shadow(el_deg, 2.7))
+      4 * jnp.cos(jnp.radians(el_deg - 35)) * balloon_shadow(el_deg, 3.3) +
+      2 * jnp.cos(jnp.radians(el_deg - 65)) * balloon_shadow(el_deg, 2.7))
 
   return power
 
