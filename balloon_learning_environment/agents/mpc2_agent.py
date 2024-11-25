@@ -14,6 +14,8 @@ from balloon_learning_environment.env.balloon.balloon import BalloonState
 # STAY = 1
 # UP = 2
 
+# jax.config.update("jax_enable_x64", True)
+
 class JaxBalloonStatus:
   OK = 0
   OUT_OF_POWER = 1
@@ -261,7 +263,7 @@ class JaxBalloon:
         rho_air = (state.pressure * jax_utils.DRY_AIR_MOLAR_MASS) / (
             jax_utils.UNIVERSAL_GAS_CONSTANT * state.ambient_temperature)
         
-        drag = state.envelope_cod
+        drag = state.envelope_cod * state.envelope_volume**(2.0 / 3.0)
         total_flight_system_mass = (
             jax_utils.HE_MOLAR_MASS * state.mols_lift_gas +
             jax_utils.DRY_AIR_MOLAR_MASS * state.mols_air + state.envelope_mass +
@@ -281,18 +283,24 @@ class JaxBalloon:
             jnp.abs(2 * (rho_air * state.envelope_volume -
                         total_flight_system_mass) * jax_utils.GRAVITY /
                     (rho_air * drag)))
+        # print("dh_dt: ", dh_dt)
+
         dp = 1.0  # [Pa] A small pressure delta.
         height0 = atmosphere.at_pressure(state.pressure).height.meters
         height1 = atmosphere.at_pressure(state.pressure +
                                         direction * dp).height.meters
         dp_dh = direction * dp / (height1 - height0)
+        # print("dp_dh: ", dp_dh)
         dp_dt = dp_dh * dh_dt
-
+        # print("P", dh_dt, stride)
         new_state.pressure = state.pressure + dp_dt * stride
         
         # Step 3: calculate internal temp of balloon
-        latlng = jax_utils.calculate_jax_latlng_from_offset(state.center_latlng, state.x, state.y)
+
+        latlng = jax_utils.calculate_jax_latlng_from_offset(state.center_latlng, state.x/1000, state.y/1000)
+        # print("C(j): ", latlng)
         solar_elevation, _, solar_flux = jax_utils.solar_calculator(latlng, state.date_time)
+        # print("solar_elevation", solar_elevation)
 
         new_state.ambient_temperature = atmosphere.at_pressure(state.pressure).temperature
         d_internal_temperature = jax_utils.d_balloon_temperature_dt(
@@ -384,6 +392,7 @@ class JaxBalloon:
         # and off of the battery as apppropriate. 🔋
 
         is_day = solar_elevation > jax_utils.MIN_SOLAR_EL_DEG
+        print("D: ", is_day)
         new_state.solar_charging = jax.lax.cond(
             is_day,
             lambda op: jax_utils.solar_power(solar_elevation, op),
@@ -404,8 +413,10 @@ class JaxBalloon:
         # We use a simplified model of a battery that is kept at a constant
         # temperature and acts like an ideal energy reservoir.
         new_state.battery_charge = state.battery_charge + (
-            new_state.solar_charging - new_state.power_load) * stride
+            new_state.solar_charging - new_state.power_load) * (stride/jax_utils.NUM_SECONDS_PER_HOUR)
         
+        # print("Q: ", new_state.solar_charging, new_state.power_load)
+
         # energer watts hr
         new_state.battery_charge = jnp.clip(new_state.battery_charge,
                                                 0.0,

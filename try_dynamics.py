@@ -121,21 +121,29 @@ def test_simulate_one_step():
     ble_balloon =  balloon.Balloon(balloon_state)
     jax_balloon = JaxBalloon(JaxBalloonState.from_ble_state(balloon_state))
     
-    for i in range(2):
+    print("________________________________________________________")
+    print(f"Iteration 0")
+    compare_prints(ble_balloon.state, jax_balloon.state)
+
+    for i in range(1, 100):
+        # update ble balloon
         action = control.AltitudeControlCommand.UP
         wind_vector = get_wind_sample(balloon_state)
-        balloon._simulate_step_internal(ble_balloon.state, wind_vector, atmosphere, action, dt.timedelta(seconds=10))
+        state_changes = balloon._simulate_step_internal(ble_balloon.state, wind_vector, atmosphere, action, dt.timedelta(seconds=10))
+        for k, v in state_changes.items():
+            setattr(ble_balloon.state, k, v)
 
+        if ble_balloon.state.status != balloon.BalloonStatus.OK:
+            print("got not OK status")
+
+        # update jax balloon
         action = 2
         jax_wind_vector = jnp.array([ wind_vector.u.meters_per_second, wind_vector.v.meters_per_second ])
-        jax_balloon._simulate_step_internal(jax_wind_vector, atmosphere.to_jax_atmopshere(), action, 10) 
-
-        ble_state = ble_balloon.state
-        jax_state = jax_balloon.state
+        jax_balloon = jax_balloon._simulate_step_internal(jax_wind_vector, atmosphere.to_jax_atmopshere(), action, 10) 
 
         print("________________________________________________________")
         print(f"Iteration {i}")
-        compare_prints(ble_state, jax_state)
+        compare_prints(ble_balloon.state, jax_balloon.state)
 
 
 # test_initialization()

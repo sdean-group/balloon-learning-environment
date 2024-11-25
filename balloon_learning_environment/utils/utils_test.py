@@ -102,9 +102,8 @@ def test_solar_calculator():
         print("-" * 40)
         # input()
 
-# test_solar_calculator()
+test_solar_calculator()
 
-# TODO: test d_temperature
 
 def test_d_temperature_dt():
     test_cases = [
@@ -168,7 +167,7 @@ def test_d_temperature_dt():
             print(f"  d_balloon_temperature/dt: {d_temp_dt:.6f} K/s")
             print("-" * 40)
 
-test_d_temperature_dt()
+# test_d_temperature_dt()
 
 def test_calculate_superpressure_and_volume():
     test_cases = [
@@ -223,7 +222,7 @@ def test_calculate_superpressure_and_volume():
             print(f"  Superpressure: {superpressure:.3f} Pa")
             print("-" * 40)
 
-test_calculate_superpressure_and_volume()
+# test_calculate_superpressure_and_volume()
 
 def test_acs():
     test_cases = [
@@ -245,4 +244,4 @@ def test_acs():
             print(f"  Mass Flow: {mass_flow:.6f} kg/s")
             print("-" * 30)
 
-test_acs()
+# test_acs()

@@ -66,16 +66,16 @@ def solar_calculator(latlng: s2.LatLng,
   fraction_of_day = (
       int(time.timestamp()) %
       constants.NUM_SECONDS_PER_DAY) / constants.NUM_SECONDS_PER_DAY
-  # print('A', fraction_of_day)
+  # print('A-', fraction_of_day)
 
   # Compute Julian day number from Gregorian calendar.
-  # print('B', time.year, time.month, time.day)
+  # print('B-', time.year, time.month, time.day)
   julian_day_number = (367.0 * time.year - np.floor(7.0 * (time.year + np.floor(
       (time.month + 9.0) / 12.0)) / 4.0) - np.floor(3.0 * (np.floor(
           (time.year + (time.month - 9.0) / 7.0) / 100.0) + 1.0) / 4.0) +
                        np.floor(275.0 * time.month / 9.0) + time.day +
                        1721028.5)
-  # print('C', julian_day_number)
+  # print('C-', julian_day_number)
 
   # Compute Julian time (in days and in centuries).
   julian_time = julian_day_number + fraction_of_day
@@ -111,7 +111,7 @@ def solar_calculator(latlng: s2.LatLng,
 
   eccentricity_earth = 0.016708634 - julian_century * (
       0.000042037 + 0.0000001267 * julian_century)
-  print('H', var_y, eccentricity_earth)
+  # print('H', var_y, eccentricity_earth)
 
   equation_of_time = (4.0 *
                       (var_y * sin2l0 - 2.0 * eccentricity_earth * sinm0 +
