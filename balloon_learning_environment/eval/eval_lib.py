@@ -28,6 +28,7 @@ from balloon_learning_environment.eval import suites
 from balloon_learning_environment.utils import units
 from jax import numpy as jnp
 import numpy as np
+from tqdm import tqdm
 
 
 class EvalResultEncoder(json.JSONEncoder):
@@ -157,34 +158,40 @@ def eval_agent(agent: base_agent.Agent,
 
     env.seed(seed)
     observation = env.reset()
+    agent.update_forecast(env.get_wind_forecast())
+    agent.update_atmosphere(env.get_atmosphere())
     action = agent.begin_episode(observation)
 
     step_count = 0
     out_of_power = False
     envelope_burst = False
     zeropressure = False
-    while step_count < eval_suite.max_episode_length:
-      observation, reward, is_done, info = env.step(action)
-      action = agent.step(reward, observation)
+    with tqdm(total=eval_suite.max_episode_length) as pbar:
+      while step_count < eval_suite.max_episode_length:
+        observation, reward, is_done, info = env.step(action)
 
-      total_reward += reward
-      balloon_state = env.get_simulator_state().balloon_state
-      if calculate_flight_path:
-        flight_path.append(
-            SimpleBalloonState.from_balloon_state((balloon_state)))
-      steps_within_radius += _balloon_is_within_radius(balloon_state,
-                                                       env.radius)
+        action = agent.step(reward, observation)
 
-      if step_count % render_period == 0:
-        env.render()  # No-op if renderer is None.
+        total_reward += reward
+        balloon_state = env.get_simulator_state().balloon_state
+        if calculate_flight_path:
+          flight_path.append(
+              SimpleBalloonState.from_balloon_state((balloon_state)))
+        steps_within_radius += _balloon_is_within_radius(balloon_state,
+                                                        env.radius)
 
-      step_count += 1
+        if step_count % render_period == 0:
+          env.render()  # No-op if renderer is None.
 
-      if is_done:
-        out_of_power = info.get('out_of_power', False)
-        envelope_burst = info.get('envelope_burst', False)
-        zeropressure = info.get('zeropressure', False)
-        break
+        step_count += 1
+
+        if is_done:
+          out_of_power = info.get('out_of_power', False)
+          envelope_burst = info.get('envelope_burst', False)
+          zeropressure = info.get('zeropressure', False)
+          break
+        
+        pbar.update(1)
 
     twr = steps_within_radius / step_count
     agent.end_episode(reward, is_done)

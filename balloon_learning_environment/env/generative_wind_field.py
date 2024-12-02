@@ -15,6 +15,7 @@
 
 """A wind field created by a generative model."""
 
+# # from memory_profiler import profile
 import datetime as dt
 from typing import List, Sequence, Union
 
@@ -25,6 +26,7 @@ from balloon_learning_environment.env import wind_field
 from balloon_learning_environment.generative import vae
 from balloon_learning_environment.models import models
 from balloon_learning_environment.utils import units
+from atmosnav import JaxTree
 import flax
 import jax
 from jax import numpy as jnp
@@ -36,9 +38,30 @@ def generative_wind_field_factory() -> grid_based_wind_field.GridBasedWindField:
   """A convenience function for creating a generative wind field."""
   return grid_based_wind_field.GridBasedWindField(GenerativeWindFieldSampler())
 
+class JaxGenerativeWindFieldSampler(grid_wind_field_sampler.JaxGridFieldWindSampler):
+  def __init__(self, params):
+    self.params = params
+  
+  #@profile
+  def sample_field(self, key: jnp.ndarray, date_time: dt.datetime) -> jnp.ndarray:
+    latents = jax.random.normal(key, shape=(64,))
+    decoder = vae.Decoder()
+    return decoder.apply(self.params, latents)
 
+  def tree_flatten(self):
+    return (self.params, ), {}
+
+  @classmethod
+  def tree_unflatten(cls, aux_data, children): 
+    return JaxGenerativeWindFieldSampler(*children)  
+  
+
+# TODO: If this doesn't work with JAX, need a JaxGridWindFieldSampler to go along with JaxWindField 
 class GenerativeWindFieldSampler(grid_wind_field_sampler.GridWindFieldSampler):
   """A class that samples wind fields from a VAE."""
+
+  def to_jax_grid_wind_field_sampler(self):
+    return JaxGenerativeWindFieldSampler(self.params)
 
   def __init__(self):
     # TODO(joshgreaves): Add options for loading other sets of parameters.

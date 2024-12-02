@@ -89,7 +89,7 @@ def absorptivity_ir(object_temperature_k: float) -> float:
           (object_temperature_k - _PE01_ABSORPTIVITY_IR_REF_TEMPERATURE))
 
 
-def total_absorptivity(absorptivity: float, reflectivity: float) -> float:
+def  total_absorptivity(absorptivity: float, reflectivity: float) -> float:
   """Compute total internal balloon absorptivity/emissivity factor.
 
   This function computes total absorptivity or total emissivity. For the

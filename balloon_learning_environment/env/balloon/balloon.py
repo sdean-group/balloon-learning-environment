@@ -425,6 +425,7 @@ def _simulate_step_internal(
       np.abs(2 * (rho_air * state.envelope_volume -
                   total_flight_system_mass) * constants.GRAVITY /
              (rho_air * drag)))
+  print("dh_dt: ", dh_dt)
 
   # We have the ascent rate in [m/s] but what we really care about is the
   # differential change in our state variable, pressure. Our pressure to
@@ -440,16 +441,18 @@ def _simulate_step_internal(
   height1 = atmosphere.at_pressure(state.pressure +
                                    direction * dp).height.meters
   dp_dh = direction * dp / (height1 - height0)
+  # print("dp_dh: ", dp_dh)
   dp_dt = dp_dh * dh_dt
-
   state_changes['pressure'] = state.pressure + dp_dt * stride.total_seconds()
 
   ## Step 3: Look up the ambient temperature, upwelling infrared radiation,
   # and solar radiation, and calculate the internal temperature of the
   # balloon 🌡.
-
+  
+  # print("C(b): ", state.latlng)
   solar_elevation, _, solar_flux = solar.solar_calculator(
-      state.latlng, state.date_time)
+      state.latlng, state.date_time)  
+  # print("solar_elevation(b)", solar_elevation)      
 
   # Use standard atmosphere for temperature.
   # A longer term goal would be to create a model with temperature lapse
@@ -522,6 +525,7 @@ def _simulate_step_internal(
   # and off of the battery as apppropriate. 🔋
 
   is_day = solar_elevation > solar.MIN_SOLAR_EL_DEG
+  # print("D (ble): ", is_day) 
   state_changes['solar_charging'] = (
       solar.solar_power(solar_elevation, state.pressure)
       if is_day else units.Power(watts=0.0))
@@ -534,6 +538,7 @@ def _simulate_step_internal(
   # temperature and acts like an ideal energy reservoir.
   state_changes['battery_charge'] = state.battery_charge + (
       state_changes['solar_charging'] - state_changes['power_load']) * stride
+  # print("(ble) Q: ", state_changes['solar_charging'], state_changes['power_load'])
   state_changes['battery_charge'] = _clip(state_changes['battery_charge'],
                                           units.Energy(watt_hours=0.0),
                                           state.battery_capacity)

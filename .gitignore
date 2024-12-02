@@ -9,3 +9,9 @@ build/
 *.err
 *.out
 submission_files/
+
+balloon_learning_environment/colab/.ipynb_checkpoints/
+
+*.npy
+
+.DS_Store

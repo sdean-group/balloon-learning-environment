@@ -22,8 +22,10 @@ import numpy as np
 
 _METERS_PER_FOOT = 0.3048
 
+from atmosnav import JaxTree
 
-class Distance:
+# class Distance:
+class Distance(JaxTree):
   """A compact distance unit."""
 
   def __init__(self,
@@ -36,6 +38,13 @@ class Distance:
     # Note: distance is stored as meters.
     self._distance = (
         m + meters + (km + kilometers) * 1000.0 + feet * _METERS_PER_FOOT)
+
+  def tree_flatten(self):
+    return (self._distance, ), {}
+
+  @classmethod
+  def tree_unflatten(cls, aux_data, children): 
+    return Distance(meters=children[0])
 
   @property
   def m(self) -> float:
@@ -123,6 +132,11 @@ class Distance:
   def __ge__(self, other: 'Distance') -> bool:
     return self.m >= other.m
 
+  def __str__(self):
+    return f"Distance(meters={self.meters})"
+  
+  def __repr__(self): return str(self)
+
 
 class Velocity:
   """A compact velocity unit."""
@@ -196,8 +210,16 @@ class Velocity:
       raise NotImplementedError(f'Cannot divide velocity by {type(other)}')
 
 
+  def __str__(self):
+    return f"Velocity(mps={self.mps})"
+  
+  def __repr__(self): return str(self)
+
 class Energy(object):
   """A compact energy class."""
+
+  def __str__(self): return f"Energy(watt_hours={self.watt_hours})"
+  def __repr__(self): return str(self)
 
   def __init__(self, *, watt_hours: float = 0.0):
     self._wh = watt_hours
@@ -254,6 +276,9 @@ class Energy(object):
 
 class Power(object):
   """A compact power class."""
+
+  def __str__(self): return f"Power(watts={self.watts})"
+  def __repr__(self): return str(self)
 
   def __init__(self, *, watts: float = 0.0):
     self._w = watts

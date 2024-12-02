@@ -23,6 +23,7 @@ from typing import Iterable, Optional, Text, Union
 from balloon_learning_environment.env import simulator_data
 from balloon_learning_environment.env.rendering import renderer
 from flax.metrics import tensorboard
+import matplotlib
 from matplotlib import dates as mdates
 from matplotlib import gridspec
 import matplotlib.pyplot as plt
