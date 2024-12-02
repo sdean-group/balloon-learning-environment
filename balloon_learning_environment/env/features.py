@@ -38,6 +38,7 @@ from balloon_learning_environment.env import simulator_data
 from balloon_learning_environment.env import wind_field
 from balloon_learning_environment.env import wind_gp
 from balloon_learning_environment.env.balloon import balloon
+from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloonState
 from balloon_learning_environment.env.balloon import control
 from balloon_learning_environment.env.balloon import power_table
 from balloon_learning_environment.env.balloon import pressure_range_builder
@@ -93,6 +94,18 @@ class FeatureConstructor(abc.ABC):
   @abc.abstractmethod
   def observation_space(self) -> gym.Space:
     """Gets the observation space specification for the feature vector."""
+
+class MPC2Features:
+  def __init__(self):
+    self.observation = None
+
+  def observe(self, observation: simulator_data.SimulatorObservation):
+    self.observation = observation
+
+  def get_features(self) -> np.ndarray:
+    balloon_observation = self.observation.balloon_observation
+    # TODO: eventually actually convert this into a vector
+    return JaxBalloonState.from_state(balloon_observation)
 
 class MPCFeatures:
   """
