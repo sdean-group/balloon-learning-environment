@@ -12,6 +12,7 @@ def jax_balloon_state_from_observation(observation):
     # print(x, y)
     pressure = observation[3]
     t = observation[0].seconds
+    # see TODO: below
 
 # class Optimizer:
 #     def __init__(self):
@@ -39,7 +40,16 @@ def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmospher
             action_distribution[1] * jax_balloon_cost(stay_balloon) + \
             action_distribution[2] * jax_balloon_cost(up_balloon))
         
-        next_balloon = jnp.array([ down_balloon, stay_balloon, up_balloon ])[jnp.argmax(action_distribution)]
+        next_balloon_which = jnp.argmax(action_distribution)
+        next_balloon = jax.lax.cond(next_balloon_which == 0,
+                                    lambda op: op[1],
+                                    lambda op: jax.lax.cond(
+                                        op[0] == 1,
+                                        lambda ops: ops[0],
+                                        lambda ops: ops[1],
+                                        operand=(op[2], op[3])),
+                                    operand=(next_balloon_which, down_balloon, stay_balloon, up_balloon))
+        # next_balloon = [ down_balloon, stay_balloon, up_balloon ][jnp.argmax(action_distribution)]
         return next_balloon, cost
 
     final_balloon, final_cost = jax.lax.fori_loop(0, len(plan), update_step, init_val=(balloon, cost))
@@ -49,7 +59,7 @@ def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmospher
 
 class MPC2Agent(agent.Agent):
     
-    def __init__(self, num_actions: int, observation_shape: Sequence[int]):
+    def __init__(self, num_actions: int, observation_shape): # Sequence[int]
         super(MPC2Agent, self).__init__(num_actions, observation_shape)
         self.forecast = None # WindField
         self.atmosphere = None # Atmosphere
@@ -70,20 +80,33 @@ class MPC2Agent(agent.Agent):
         # TODO: actually convert observation into an ndarray (it is a JaxBalloonState, see features.py)
         # balloon = JaxBalloon(jax_balloon_state_from_observation(observation))
         balloon = JaxBalloon(observation)
-        initial_plan = np.full((self.plan_steps, 3), fill_value=1) # everything is equally likely
+        initial_plan = np.full((self.plan_steps, 3), fill_value=0.5) # everything is equally likely
         
         self.plan = initial_plan
-        for _ in range(10):
+        for _ in range(100):
             dplan = self.get_dplan(self.plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
-            plan -= dplan / jnp.linalg.norm(dplan)
+            # print("plan")
+            # print(self.plan)
+            # print("∆ plan")
+            # print(dplan)
+            self.plan -= dplan / jnp.linalg.norm(dplan)
+            # input()
         
-        self.i = 0
-        return self.plan[self.i]
+        # self.i = 0
+        self.i = 1
+        action = np.argmax(self.plan[self.i])
+        print(f'Action at iter {self.i}: {action}')
+        return action
 
     def step(self, reward: float, observation: np.ndarray) -> int:
-        self.i += 1
-        action = np.argmax(self.plan[self.i])
-        return action
+        REPLANNING = False
+        if not REPLANNING:
+            self.i += 1
+            action = np.argmax(self.plan[self.i])
+            print(f'Action at iter {self.i}: {action}')
+            return action
+        else:
+            return self.begin_episode(observation)
  
     def end_episode(self, reward: float, terminal: bool = True) -> None:
         self.i

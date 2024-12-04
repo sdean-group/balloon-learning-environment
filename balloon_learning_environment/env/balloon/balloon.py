@@ -425,7 +425,6 @@ def _simulate_step_internal(
       np.abs(2 * (rho_air * state.envelope_volume -
                   total_flight_system_mass) * constants.GRAVITY /
              (rho_air * drag)))
-  print("dh_dt: ", dh_dt)
 
   # We have the ascent rate in [m/s] but what we really care about is the
   # differential change in our state variable, pressure. Our pressure to

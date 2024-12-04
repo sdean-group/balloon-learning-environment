@@ -96,7 +96,8 @@ class FeatureConstructor(abc.ABC):
     """Gets the observation space specification for the feature vector."""
 
 class MPC2Features:
-  def __init__(self):
+  def __init__(self, forecast: wind_field.WindField,
+               atmosphere: standard_atmosphere.Atmosphere):
     self.observation = None
 
   def observe(self, observation: simulator_data.SimulatorObservation):
@@ -105,7 +106,16 @@ class MPC2Features:
   def get_features(self) -> np.ndarray:
     balloon_observation = self.observation.balloon_observation
     # TODO: eventually actually convert this into a vector
-    return JaxBalloonState.from_state(balloon_observation)
+    return JaxBalloonState.from_ble_state(balloon_observation)
+
+  @property
+  def observation_space(self) -> gym.Space:
+    lo = np.full((2, ), -np.inf)
+    hi = np.full((2, ), +np.inf)
+
+    # TODO: this is broken
+
+    return gym.spaces.Box(low=lo, high=hi)
 
 class MPCFeatures:
   """
@@ -132,6 +142,8 @@ class MPCFeatures:
   def observation_space(self) -> gym.Space:
     lo = np.full((2, ), -np.inf)
     hi = np.full((2, ), +np.inf)
+
+    # TODO: this is broken
 
     return gym.spaces.Box(low=lo, high=hi)
   

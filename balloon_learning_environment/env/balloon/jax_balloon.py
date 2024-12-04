@@ -34,7 +34,7 @@ class JaxBalloonState:
                 f"acs_valve_hole_diameter_meters={self.acs_valve_hole_diameter_meters}, battery_capacity={self.battery_capacity}, "
                 f"upwelling_infrared={self.upwelling_infrared}, mols_lift_gas={self.mols_lift_gas})")
     
-    def from_state(state: 'JaxBalloonState'):
+    def from_jax_state(state: 'JaxBalloonState'):
         copy = JaxBalloonState()
         copy.center_latlng = state.center_latlng
         copy.x = state.x
@@ -251,7 +251,7 @@ class JaxBalloon:
             stride) -> 'd_state':
         
         state = self.state
-        new_state = JaxBalloonState.from_state(state)
+        new_state = JaxBalloonState.from_jax_state(state)
         
         # Step 1: balloon moves with the wind
         new_state.x = state.x + wind_vector[0] * stride
@@ -390,7 +390,6 @@ class JaxBalloon:
         # and off of the battery as apppropriate. 🔋
 
         is_day = solar_elevation > jax_utils.MIN_SOLAR_EL_DEG
-        print("D: ", is_day)
         new_state.solar_charging = jax.lax.cond(
             is_day,
             lambda op: jax_utils.solar_power(solar_elevation, op),
