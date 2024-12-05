@@ -1,7 +1,7 @@
 import jax.scipy.optimize
 import scipy.optimize
 from balloon_learning_environment.agents import agent
-from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon
+from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
 from balloon_learning_environment.env.wind_field import JaxWindField
 from balloon_learning_environment.env.balloon.standard_atmosphere import JaxAtmosphere
 import numpy as np
@@ -38,6 +38,8 @@ def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmospher
         cost += (discount_factor**i) * (action_distribution[0] * jax_balloon_cost(down_balloon) + \
             action_distribution[1] * jax_balloon_cost(stay_balloon) + \
             action_distribution[2] * jax_balloon_cost(up_balloon))
+        
+        # cost +=
         
         next_balloon_which = jnp.argmax(action_distribution)
         next_balloon = jax.lax.cond(next_balloon_which == 0,
@@ -111,8 +113,10 @@ class MPC2Agent(agent.Agent):
 
         self.plan_steps = (self.plan_time // self.time_delta)
 
-        self.plan = None
+        self.plan = jnp.full((self.plan_steps, 3), fill_value=1.0/3.0)
         self.i = 0
+
+        self.key = jax.random.key(seed=0)
 
     def begin_episode(self, observation: np.ndarray) -> int:
         # TODO: actually convert observation into an ndarray (it is a JaxBalloonState, see features.py)
@@ -120,9 +124,9 @@ class MPC2Agent(agent.Agent):
         balloon = JaxBalloon(observation)
         # initial_plan = np.full((self.plan_steps, 3), fill_value=0.5) # everything is equally likely
 
-        key = jax.random.key(seed=0)
-        initial_plans = jax.random.uniform(key, (50, self.plan_steps, 3))
-        _, key = jax.random.split(key)
+        initial_plans = jax.random.uniform(self.key, (50, self.plan_steps, 3))
+        _, self.key = jax.random.split(self.key)
+
         # print("doing initialization")
         batched_cost = []
         for i in range(50):
@@ -132,7 +136,12 @@ class MPC2Agent(agent.Agent):
         # batched_cost_fn = jax.jit(jax.vmap(jax_plan_cost, in_axes=(0, None, None, None, None, None)))
         # batched_cost = batched_cost_fn(initial_plans, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
 
-        initial_plan = initial_plans[np.argmin(batched_cost)]
+        current_plan_cost = jax_plan_cost(self.plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
+        which_min_cost = np.argmin(batched_cost)
+        if current_plan_cost < batched_cost[which_min_cost]:
+            initial_plan = self.plan
+        else:
+            initial_plan = initial_plans[np.argmin(batched_cost)]
         # self.plan = grad_descent_optimizer(
         #     initial_plan, 
         #     self.get_dplan, 
@@ -169,7 +178,9 @@ class MPC2Agent(agent.Agent):
             # print(f'Action at iter {self.i}: {action}')
             return action
         else:
-            if self.i>0 and self.i%23==0:
+            N = 96
+            if self.i>0 and self.i%N==0:
+                self.plan = jnp.vstack((self.plan[N:], jax.random.uniform(self.key, (N, 3))))
                 return self.begin_episode(observation)
             else:
                 self.i += 1
