@@ -8,10 +8,6 @@ import jax.numpy as jnp
 from balloon_learning_environment.utils import units
 from balloon_learning_environment.env.balloon.balloon import BalloonState
 
-# DOWN = 0
-# STAY = 1
-# UP = 2
-
 class JaxBalloonStatus:
   OK = 0
   OUT_OF_POWER = 1
