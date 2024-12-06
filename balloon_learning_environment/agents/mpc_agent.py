@@ -199,7 +199,7 @@ class MPCAgent(agent.Agent):
 
     #@profile
     def step_no_bug(self, reward: float, observation: np.ndarray) -> int:
-        REPLANNING = False
+        REPLANNING = True
         if REPLANNING:
             N = 1
             if self.i > 0 and self.i%N == 0:

@@ -18,7 +18,7 @@ def jax_balloon_state_from_observation(observation):
     # see TODO: below
 
 def jax_balloon_cost(balloon: JaxBalloon):
-    return balloon.state.x**2 + balloon.state.y**2# - balloon.state.acs_power
+    return (balloon.state.x)**2 + (balloon.state.y)**2# - balloon.state.acs_power
 
 @jax.jit
 def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: 'int, seconds', stride: 'int, seconds'):
@@ -57,12 +57,16 @@ def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmospher
     return final_cost
 
 def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, time_delta, stride):
+    start_cost = jax_plan_cost(initial_plan, balloon, forecast, atmosphere, time_delta, stride)
     plan = initial_plan
     for gradient_steps in range(100):
         dplan = dcost_dplan(plan, balloon, forecast, atmosphere, time_delta, stride)
         if abs(jnp.linalg.norm(dplan)) < 1e-7:
             break
         plan -= dplan / jnp.linalg.norm(dplan)
+    # print(f"After {gradient_steps} gd steps", plan, jax_plan_cost(plan, balloon, forecast, atmosphere, time_delta, stride))
+    # input()
+    print("GD", gradient_steps, (jax_plan_cost(initial_plan, balloon, forecast, atmosphere, time_delta, stride) - start_cost))
     return plan
 
 def jax_scipy_optimizer(initial_plan, balloon, forecast, atmosphere, time_delta, stride):
@@ -93,9 +97,42 @@ def scipy_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, ti
         method="CG")
     return opt_res.x.reshape(-1, 3)
 
+def get_initials_plans(key, balloon: JaxBalloon,  atmosphere: JaxAtmosphere, num_plans, plan_steps):
+    # return jnp.array([ jnp.full((plan_steps, 3), fill_value=1.0/3.0) ])
+
+    # initial_plans = jax.random.uniform(self.key, (50, self.plan_steps, 3))
+    # _, self.key = jax.random.split(self.key)
+
+    # goal_altitudes = jnp.linspace(5, 20, 10, num_plans)
+    # for goal_altitude in goal_altitudes:
+    #     for i in range(plan_steps):
+    #         current_altitude = atmosphere.at_pressure(balloon.state.pressure).height.km
+    #         action = 1 # Stay
+    #         if current_altitude < goal_altitude:
+    #             action = 0 # Up
+    #         else:
+    #             action = 2 
+    #         balloon_i = balloon.simulate_step()
+
+    plans = []
+    for i in range(num_plans):
+        plan_i = jnp.full((plan_steps, 3), fill_value=1.0/3.0)
+        # plan_i = jax.random.uniform(key, (plan_steps, 3))
+        # key, _ = jax.random.split(key)
+
+        up_down = jax.random.choice(key, jnp.array([ 0, 2 ])) # down = 0 ; up = 2
+        length = jax.random.randint(key, (1, ), 0, plan_steps)[0]
+
+        for j in range(plan_steps): 
+            if j < length:
+                plan_i[j][up_down] += 1.0/3.0
+            else:
+                plan_i[j][1] += 1.0/3.0
 
 
+        plans.append(plan_i)
 
+    return plans
 
 class MPC2Agent(agent.Agent):
     
@@ -127,9 +164,11 @@ class MPC2Agent(agent.Agent):
         initial_plans = jax.random.uniform(self.key, (50, self.plan_steps, 3))
         _, self.key = jax.random.split(self.key)
 
+        # initial_plans = get_initials_plans(self.key, balloon, self.atmosphere, -1, self.plan_steps)
+
         # print("doing initialization")
         batched_cost = []
-        for i in range(50):
+        for i in range(len(initial_plans)):
             batched_cost.append(jax_plan_cost(jnp.array(initial_plans[i]), balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
         # print("finished initialization")
 
@@ -142,23 +181,28 @@ class MPC2Agent(agent.Agent):
             initial_plan = self.plan
         else:
             initial_plan = initial_plans[np.argmin(batched_cost)]
-        # self.plan = grad_descent_optimizer(
-        #     initial_plan, 
-        #     self.get_dplan, 
-        #     balloon, 
-        #     self.forecast, 
-        #     self.atmosphere,
-        #     self.time_delta, 
-        #     self.stride)
         
-        self.plan = scipy_optimizer(
+
+        # no optimization
+        # self.plan = initial_plan
+
+        self.plan = grad_descent_optimizer(
             initial_plan, 
-            self.get_dplan,
+            self.get_dplan, 
             balloon, 
             self.forecast, 
             self.atmosphere,
             self.time_delta, 
             self.stride)
+        
+        # self.plan = scipy_optimizer(
+        #     initial_plan, 
+        #     self.get_dplan,
+        #     balloon, 
+        #     self.forecast, 
+        #     self.atmosphere,
+        #     self.time_delta, 
+        #     self.stride)
 
         self.i = 0
         # self.i = 1
@@ -178,7 +222,7 @@ class MPC2Agent(agent.Agent):
             # print(f'Action at iter {self.i}: {action}')
             return action
         else:
-            N = 96
+            N = 23
             if self.i>0 and self.i%N==0:
                 self.plan = jnp.vstack((self.plan[N:], jax.random.uniform(self.key, (N, 3))))
                 return self.begin_episode(observation)
