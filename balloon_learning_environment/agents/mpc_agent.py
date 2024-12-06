@@ -144,7 +144,8 @@ class MPCAgent(agent.Agent):
         # initial_plan = np.full((self.plan_size, ), 5.0)
         # self.plan = minimize(cost, initial_plan, args=(observation, self.forecast, self.atmosphere, dt.timedelta(minutes=3)))
         # print(self.plan)
-        
+
+
         # atmosnav optimizer:
         x = observation[1].km
         y = observation[2].km
@@ -160,14 +161,21 @@ class MPCAgent(agent.Agent):
             dplan = gradient_at(t, balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
             self.plan -= dplan / (np.linalg.norm(dplan) + 0.0001)
         # print(self.plan[self.i])
+
+        self.i = 0
         action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
         # print(action)
-        self.i+=1
         # action = 2
         return action
 
-    #@profile
-    def step(self, reward: float, observation: np.ndarray) -> int:
+    def step(self, reward, observation):
+        idek_anymore = False
+        if idek_anymore:
+            return self.step_with_bug(reward, observation)
+        else:
+            return self.step_no_bug(reward, observation)
+
+    def step_with_bug(self, reward: float, observation: np.ndarray) -> int:
         # t, x, y, pressure = observation
         x = observation[1].km
         y = observation[2].km
@@ -188,6 +196,23 @@ class MPCAgent(agent.Agent):
         self.i += 1
         # action = 2
         return action
+
+    #@profile
+    def step_no_bug(self, reward: float, observation: np.ndarray) -> int:
+        REPLANNING = False
+        if REPLANNING:
+            N = 1
+            if self.i > 0 and self.i%N == 0:
+                return self.begin_episode(observation)
+            else:
+                self.i += 1
+                action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
+                return action
+        else:
+            self.i += 1
+            action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
+            return action
+
  
     def end_episode(self, reward: float, terminal: bool = True) -> None:
         self.i = 0 
