@@ -18,7 +18,8 @@ def jax_balloon_state_from_observation(observation):
     # see TODO: below
 
 def jax_balloon_cost(balloon: JaxBalloon):
-    return (balloon.state.x)**2 + (balloon.state.y)**2# - balloon.state.acs_power
+    return (balloon.state.x/1000)**2 + (balloon.state.y/1000)**2# - balloon.state.acs_power
+    # return (balloon.state.x)**2 + (balloon.state.y)**2
 
 @jax.jit
 def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: 'int, seconds', stride: 'int, seconds'):
@@ -51,6 +52,7 @@ def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmospher
                                         operand=(op[2], op[3])),
                                     operand=(next_balloon_which, down_balloon, stay_balloon, up_balloon))
         # next_balloon = [ down_balloon, stay_balloon, up_balloon ][jnp.argmax(action_distribution)]
+        # jax.debug.print("{x}", x=cost)
         return next_balloon, cost
 
     final_balloon, final_cost = jax.lax.fori_loop(0, len(plan), update_step, init_val=(balloon, cost))
@@ -66,7 +68,7 @@ def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosph
         plan -= dplan / jnp.linalg.norm(dplan)
     # print(f"After {gradient_steps} gd steps", plan, jax_plan_cost(plan, balloon, forecast, atmosphere, time_delta, stride))
     # input()
-    print("GD", gradient_steps, (jax_plan_cost(initial_plan, balloon, forecast, atmosphere, time_delta, stride) - start_cost))
+    print("GD", gradient_steps, f"{jax_plan_cost(initial_plan, balloon, forecast, atmosphere, time_delta, stride)} - {start_cost}")
     return plan
 
 def jax_scipy_optimizer(initial_plan, balloon, forecast, atmosphere, time_delta, stride):
@@ -116,12 +118,12 @@ def get_initials_plans(key, balloon: JaxBalloon,  atmosphere: JaxAtmosphere, num
 
     plans = []
     for i in range(num_plans):
-        plan_i = jnp.full((plan_steps, 3), fill_value=1.0/3.0)
+        plan_i = np.full((plan_steps, 3), fill_value=1.0/3.0)
         # plan_i = jax.random.uniform(key, (plan_steps, 3))
         # key, _ = jax.random.split(key)
 
-        up_down = jax.random.choice(key, jnp.array([ 0, 2 ])) # down = 0 ; up = 2
-        length = jax.random.randint(key, (1, ), 0, plan_steps)[0]
+        up_down = np.random.choice([ 0, 2 ]) # down = 0 ; up = 2
+        length = np.random.randint(0, plan_steps, (1, ))[0]
 
         for j in range(plan_steps): 
             if j < length:
@@ -161,10 +163,10 @@ class MPC2Agent(agent.Agent):
         balloon = JaxBalloon(observation)
         # initial_plan = np.full((self.plan_steps, 3), fill_value=0.5) # everything is equally likely
 
-        initial_plans = jax.random.uniform(self.key, (50, self.plan_steps, 3))
-        _, self.key = jax.random.split(self.key)
+        # initial_plans = jax.random.uniform(self.key, (50, self.plan_steps, 3))
+        # _, self.key = jax.random.split(self.key)
 
-        # initial_plans = get_initials_plans(self.key, balloon, self.atmosphere, -1, self.plan_steps)
+        initial_plans = get_initials_plans(self.key, balloon, self.atmosphere, 10, self.plan_steps)
 
         # print("doing initialization")
         batched_cost = []
@@ -172,16 +174,22 @@ class MPC2Agent(agent.Agent):
             batched_cost.append(jax_plan_cost(jnp.array(initial_plans[i]), balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
         # print("finished initialization")
 
+        which_min_cost = jnp.argmin(jnp.array(batched_cost))
+        print(batched_cost)
+        print("Choosing plan:", which_min_cost,"with cost:", batched_cost[which_min_cost])
+
         # batched_cost_fn = jax.jit(jax.vmap(jax_plan_cost, in_axes=(0, None, None, None, None, None)))
         # batched_cost = batched_cost_fn(initial_plans, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
 
         current_plan_cost = jax_plan_cost(self.plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
-        which_min_cost = np.argmin(batched_cost)
+        
         if current_plan_cost < batched_cost[which_min_cost]:
+            print('using existing plan')
             initial_plan = self.plan
         else:
             initial_plan = initial_plans[np.argmin(batched_cost)]
         
+        print("Initial cost: ", jax_plan_cost(initial_plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
 
         # no optimization
         # self.plan = initial_plan

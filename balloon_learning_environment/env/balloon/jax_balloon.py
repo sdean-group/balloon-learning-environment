@@ -237,6 +237,221 @@ class JaxBalloon:
 
         final_balloon = jax.lax.fori_loop(0, outer_stride//inner_stride, update_step, init_val=self)
         return final_balloon
+    
+    def simulate_step_continuous(
+            self, 
+            wind_vector: '[u, v], meters / second', 
+            atmosphere: JaxAtmosphere, 
+            acs_control: 'float, [-1, 1]', 
+            time_delta: 'int, seconds', 
+            stride: 'int, seconds') -> 'next_balloon':
+    
+        # time_delta % stride == 0 must be true!
+        # check if self.state.status == OK
+        # check safety layers
+
+        # acs_control = jnp.clip(acs_control, -1, 1)
+        acs_control = 2*jax.nn.sigmoid(acs_control) - 1
+
+        # TODO: could make the seconds take in integers
+        outer_stride = time_delta#.astype(int)
+        inner_stride = stride#.astype(int)
+        def update_step(i, balloon):
+            return balloon._simulate_step_continuous_internal(wind_vector, atmosphere, acs_control, stride)
+
+        # outer_stride//inner_stride
+        final_balloon = jax.lax.fori_loop(0, 3, update_step, init_val=self)
+        return final_balloon
+
+
+    def _simulate_step_continuous_internal(
+            self, 
+            wind_vector, 
+            atmosphere, 
+            acs_control,
+            stride) -> 'd_state':
+        
+        state = self.state
+        new_state = JaxBalloonState.from_jax_state(state)
+        
+        # Step 1: balloon moves with the wind
+        new_state.x = state.x + wind_vector[0] * stride
+        new_state.y = state.y + wind_vector[1] * stride
+
+        # Step 2: calculate pressure from bouyancy and drag forces
+        rho_air = (state.pressure * jax_utils.DRY_AIR_MOLAR_MASS) / (
+            jax_utils.UNIVERSAL_GAS_CONSTANT * state.ambient_temperature)
+        
+        drag = state.envelope_cod * state.envelope_volume**(2.0 / 3.0)
+        total_flight_system_mass = (
+            jax_utils.HE_MOLAR_MASS * state.mols_lift_gas +
+            jax_utils.DRY_AIR_MOLAR_MASS * state.mols_air + state.envelope_mass +
+        state.payload_mass)
+        
+        direction = jax.lax.cond(
+            rho_air * state.envelope_volume >= total_flight_system_mass,
+            lambda _: 1.0,
+            lambda _: -1.0,
+            operand=None,
+        )
+        
+        # direction = (1.0 if rho_air * self.envelope_volume >=
+        #     total_flight_system_mass else -1.0)
+        
+        dh_dt = direction * jnp.sqrt(  # [m/s]
+            jnp.abs(2 * (rho_air * state.envelope_volume -
+                        total_flight_system_mass) * jax_utils.GRAVITY /
+                    (rho_air * drag)))
+        # print("dh_dt: ", dh_dt)
+
+        dp = 1.0  # [Pa] A small pressure delta.
+        height0 = atmosphere.at_pressure(state.pressure).height.meters
+        height1 = atmosphere.at_pressure(state.pressure +
+                                        direction * dp).height.meters
+        dp_dh = direction * dp / (height1 - height0)
+        # print("dp_dh: ", dp_dh)
+        dp_dt = dp_dh * dh_dt
+        # print("P", dh_dt, stride)
+        new_state.pressure = state.pressure + dp_dt * stride
+        
+        # Step 3: calculate internal temp of balloon
+
+        latlng = jax_utils.calculate_jax_latlng_from_offset(state.center_latlng, state.x/1000, state.y/1000)
+        # print("C(j): ", latlng)
+        solar_elevation, _, solar_flux = jax_utils.solar_calculator(latlng, state.date_time)
+        # print("solar_elevation", solar_elevation)
+
+        new_state.ambient_temperature = atmosphere.at_pressure(state.pressure).temperature
+        d_internal_temperature = jax_utils.d_balloon_temperature_dt(
+            state.envelope_volume, state.envelope_mass, state.internal_temperature,
+            state.ambient_temperature, state.pressure, solar_elevation,
+            solar_flux, state.upwelling_infrared)
+        new_state.internal_temperature = state.internal_temperature + d_internal_temperature * stride
+
+        ## Step 4: Calculate superpressure and volume of the balloon 🎈.
+        new_state.envelope_volume, new_state.superpressure = jax_utils.calculate_superpressure_and_volume(
+                state.mols_lift_gas,
+                state.mols_air,
+                state.internal_temperature,
+                state.pressure,
+                state.envelope_volume_base,
+                state.envelope_volume_dv_pressure
+            )
+        
+        new_state.status = jax.lax.cond(
+            new_state.superpressure > state.envelope_max_superpressure,
+            lambda _: JaxBalloonStatus.BURST,
+            lambda op: op,
+            operand=state.status,
+        )
+
+        new_state.status = jax.lax.cond(
+            new_state.superpressure <= 0.0,
+            lambda _: JaxBalloonStatus.ZEROPRESSURE,
+            lambda op: op,
+            operand=state.status,
+        )
+
+        ## Step 5: Calculate, based on desired action, whether we'll use the
+        # altitude control system (ACS) ⚙️. Adjust power usage accordingly.
+
+        def on_action_up(state: JaxBalloonState, acs_control: float):
+            state_acs_power = 0.0 # watts
+            valve_area = jnp.pi * state.acs_valve_hole_diameter_meters**2 / 4.0
+            # Coefficient of drag on the air passing through the ACS from the
+            # aperture. A measured quantity.
+            default_valve_hole_cd = 0.62  # [.]
+            gas_density = (
+                state.superpressure +
+                state.pressure) * jax_utils.DRY_AIR_MOLAR_MASS / (
+                    jax_utils.UNIVERSAL_GAS_CONSTANT * state.internal_temperature)
+            state_acs_mass_flow= (
+                -1 * default_valve_hole_cd * valve_area * jnp.sqrt(
+                    2.0 * state.superpressure * gas_density))
+            
+            return acs_control * state_acs_power, state_acs_mass_flow
+
+        def on_action_down(state: JaxBalloonState, acs_control: float):
+            superpressure = jnp.max(jnp.array([state.superpressure, 0.0]))
+            pressure_ratio = (state.pressure + superpressure) / state.pressure
+            
+            state_acs_power = (-acs_control) * jax_utils.get_most_efficient_power(pressure_ratio)
+            # Compute mass flow rate by first computing efficiency of air flow.
+            efficiency = jax_utils.get_fan_efficiency(pressure_ratio,
+                                                state_acs_power)
+            state_acs_mass_flow = jax_utils.get_mass_flow(
+                state_acs_power, efficiency)
+            
+            return state_acs_power, state_acs_mass_flow
+
+        def on_action_stay():
+            state_acs_power = 0.0
+            state_acs_mass_flow = 0.0
+            
+            return state_acs_power, state_acs_mass_flow
+        
+        new_state.acs_power, new_state.acs_mass_flow = jax.lax.cond(
+            acs_control < 0,
+            lambda op: on_action_down(*op),
+            lambda op: jax.lax.cond(
+                acs_control > 0,
+                lambda op1: on_action_up(*op1),
+                lambda _: on_action_stay(),
+                operand=op,
+            ),
+            operand=(state, acs_control),
+        )
+        
+        new_state.mols_air= state.mols_air + (
+            new_state.acs_mass_flow /
+            jax_utils.DRY_AIR_MOLAR_MASS) * stride
+        new_state.mols_air = jnp.max(jnp.array([new_state.mols_air, 0.0]))
+        
+        ## Step 6: Calculate energy usage and collection, and move coulombs onto
+        # and off of the battery as apppropriate. 🔋
+
+        is_day = solar_elevation > jax_utils.MIN_SOLAR_EL_DEG
+        new_state.solar_charging = jax.lax.cond(
+            is_day,
+            lambda op: jax_utils.solar_power(solar_elevation, op),
+            lambda _: 0.0,
+            operand=state.pressure,
+        )
+
+        # TODO(scandido): Introduce a variable power load for cold upwelling IR?
+        new_state.power_load = jax.lax.cond(
+            is_day,
+            lambda op: op[0],
+            lambda op: op[1],
+            operand=[state.daytime_power_load, state.nighttime_power_load],
+        )
+
+        new_state.power_load += new_state.acs_power
+
+        # We use a simplified model of a battery that is kept at a constant
+        # temperature and acts like an ideal energy reservoir.
+        new_state.battery_charge = state.battery_charge + (
+            new_state.solar_charging - new_state.power_load) * (stride/jax_utils.NUM_SECONDS_PER_HOUR)
+        
+        # print("Q: ", new_state.solar_charging, new_state.power_load)
+
+        # energer watts hr
+        new_state.battery_charge = jnp.clip(new_state.battery_charge,
+                                                0.0,
+                                                state.battery_capacity)
+
+        new_state.status = jax.lax.cond(new_state.battery_charge <= 0.0, 
+                                    lambda _: JaxBalloonStatus.OUT_OF_POWER,
+                                    lambda op: op,
+                                    operand=state.status,
+                                    )
+
+        # This must be updated in the inner loop, since the safety layer and
+        # solar calculations rely on the current time.
+        new_state.date_time = state.date_time + stride
+        new_state.time_elapsed = state.time_elapsed + stride
+
+        return JaxBalloon(new_state)
 
     # @jax.jit
     def _simulate_step_internal(

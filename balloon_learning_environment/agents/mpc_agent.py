@@ -96,7 +96,7 @@ def make_plan(start_time, num_plans, num_steps, balloon, wind, atmosphere, waypo
             best_plan = plan
             best_cost = cost
 
-    return jnp.array(best_plan)
+    return jnp.array(best_plan), best_cost
 
 #@profile
 def convert_plan_to_actions(plan, observation, i, atmosphere):
@@ -155,12 +155,17 @@ class MPCAgent(agent.Agent):
 
         # # t, x, y, pressure = observation
         balloon = make_weather_balloon(x, y, pressure, t, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
-        self.plan = make_plan(t, 50, 240, balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
-        for _ in range(100):
+        self.plan, best_cost = make_plan(t, 50, 240, balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
+        for i in range(100):
             # start_time, dt, balloon, plan, wind
             dplan = gradient_at(t, balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
+            if abs(jnp.linalg.norm(dplan)) < 1e-7:
+                break
             self.plan -= dplan / (np.linalg.norm(dplan) + 0.0001)
         # print(self.plan[self.i])
+        # print("dplan: ", dplan)
+        print("Iterations:", i)
+        print("∆ cost:", cost_at(t, balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step) - best_cost)
 
         self.i = 0
         action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
@@ -183,7 +188,7 @@ class MPCAgent(agent.Agent):
         pressure = observation[3]
         t = observation[0].seconds
         balloon = make_weather_balloon(x, y, pressure, t, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
-        self.plan = make_plan(t, 50, 240, balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
+        self.plan, _ = make_plan(t, 50, 240, balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
         for i in range(100):
             # start_time, balloon, plan, wind
             dplan = gradient_at(t, balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
