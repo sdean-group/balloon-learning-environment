@@ -36,6 +36,7 @@ from balloon_learning_environment.agents import perciatelli44
 from balloon_learning_environment.agents import random_walk_agent
 from balloon_learning_environment.agents import station_seeker_agent
 from balloon_learning_environment.agents import mpc_agent
+from balloon_learning_environment.agents import mpc_discrete_agent
 from balloon_learning_environment.agents import mpc2_agent
 from balloon_learning_environment.agents import mpc3_agent
 from balloon_learning_environment.agents import mpc4_agent
@@ -54,6 +55,7 @@ REGISTRY = {
     'station_seeker': (station_seeker_agent.StationSeekerAgent, None),
     'random_walk': (random_walk_agent.RandomWalkAgent, None),
     'mpc': (mpc_agent.MPCAgent, None),
+    'mpc_discrete': (mpc_discrete_agent.MPCDiscreteAgent, None),
     'mpc2': (mpc2_agent.MPC2Agent, None),
     'mpc3': (mpc3_agent.MPC3Agent, None),
     'mpc4': (mpc4_agent.MPC4Agent, None),

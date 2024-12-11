@@ -8,32 +8,76 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import scipy
+from balloon_learning_environment.models import models
+from balloon_learning_environment.utils import units
+import numpy as np
+from typing import Optional, Sequence, Union
+import jax.numpy as jnp
+import datetime as dt
+from atmosnav import *
+import atmosnav as atm
+from scipy.optimize import minimize
+from functools import partial
 
-def jax_balloon_state_from_observation(observation):
-    x = observation[1].m
-    y = observation[2].m
-    # print(x, y)
-    pressure = observation[3]
-    t = observation[0].seconds
-    # see TODO: below
+class DeterministicDiscreteAltitudeModel:
 
-def jax_balloon_cost(balloon: JaxBalloon):
-    return (balloon.state.x/1000)**2 + (balloon.state.y/1000)**2# - balloon.state.acs_power
+    def __init__(self, state, integration_time_step):
+        self.dt = integration_time_step
+        self.vlim = 1.7
+        
+        self.state = state # jnp.zeros((5, ))
+
+    #@profile
+    def simulate_step(self, control_input, wind_vector):
+        state = self.state
+        h = jax.lax.cond(control_input == 0,
+                    lambda op: op[2].get_next_h(op[0], op[0][2] - 0.5), # down
+                    lambda op: jax.lax.cond(op[1] == 1,
+                                            lambda ops: ops[0][2],
+                                            lambda ops: ops[2].get_next_h(ops[0], ops[0][2] + 0.5), # up
+                                            operand=op),
+                    operand=(state, control_input, self))
+
+        return DeterministicDiscreteAltitudeModel(
+            state=state + self.dt * jnp.array([ wind_vector[0], wind_vector[1], (h - state[2])/self.dt, 0.0, 1 ]),
+            integration_time_step=self.dt)
+    
+    #@profile
+    def get_next_h(self, state, waypoint):
+        return jax.lax.cond(jnp.abs(waypoint-state[2]) > self.vlim / 3600.0 * self.dt,
+                        lambda op: op[0][2] + self.vlim / 3600.0 * self.dt * jnp.sign(op[1]-op[0][2]),
+                        lambda op: op[1],
+                        operand = (state, waypoint))
+
+    def tree_flatten(self):
+        children = (self.state, )  # arrays / dynamic values
+        aux_data = {'dt':self.dt, 'vlim':self.vlim}  # static values
+        return (children, aux_data)
+    
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return DeterministicDiscreteAltitudeModel(children[0], aux_data['dt'])
+
+from jax.tree_util import register_pytree_node_class
+register_pytree_node_class(DeterministicDiscreteAltitudeModel)
+
+def jax_balloon_cost(balloon: DeterministicDiscreteAltitudeModel):
+    return (balloon.state[0])**2 + (balloon.state[1])**2# - balloon.state.acs_power
     # return (balloon.state.x)**2 + (balloon.state.y)**2
 
 @jax.jit
-def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: 'int, seconds', stride: 'int, seconds'):
+def jax_plan_cost(plan, balloon: DeterministicDiscreteAltitudeModel, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: 'int, seconds', stride: 'int, seconds'):
     cost = 0.0
     discount_factor = 0.99#1.00
     
-    def update_step(i, balloon_and_cost: tuple[JaxBalloon, float]):
+    def update_step(i, balloon_and_cost: tuple[DeterministicDiscreteAltitudeModel, float]):
         balloon, cost = balloon_and_cost
 
-        wind_vector = wind_field.get_forecast(balloon.state.x/1000, balloon.state.y/1000, balloon.state.pressure, balloon.state.time_elapsed)
+        wind_vector = wind_field.get_forecast(balloon.state[0], balloon.state[1], atmosphere.at_height(balloon.state[2]*1000).pressure, balloon.state[4])
         
-        down_balloon = balloon.simulate_step(wind_vector, atmosphere, 0, time_delta, stride)
-        stay_balloon = balloon.simulate_step(wind_vector, atmosphere, 1, time_delta, stride)
-        up_balloon = balloon.simulate_step(wind_vector, atmosphere, 2, time_delta, stride)
+        down_balloon = balloon.simulate_step(0, wind_vector)
+        stay_balloon = balloon.simulate_step(1, wind_vector)
+        up_balloon = balloon.simulate_step(2, wind_vector)
         
         action_distribution = jax.nn.softmax(plan[i])
         cost += (discount_factor**i) * (action_distribution[0] * jax_balloon_cost(down_balloon) + \
@@ -101,47 +145,10 @@ def scipy_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, ti
     print("optimization iterations:", opt_res.nit)
     return opt_res.x.reshape(-1, 3)
 
-def get_initials_plans(key, balloon: JaxBalloon,  atmosphere: JaxAtmosphere, num_plans, plan_steps):
-    # return jnp.array([ jnp.full((plan_steps, 3), fill_value=1.0/3.0) ])
-
-    # initial_plans = jax.random.uniform(self.key, (50, self.plan_steps, 3))
-    # _, self.key = jax.random.split(self.key)
-
-    # goal_altitudes = jnp.linspace(5, 20, 10, num_plans)
-    # for goal_altitude in goal_altitudes:
-    #     for i in range(plan_steps):
-    #         current_altitude = atmosphere.at_pressure(balloon.state.pressure).height.km
-    #         action = 1 # Stay
-    #         if current_altitude < goal_altitude:
-    #             action = 0 # Up
-    #         else:
-    #             action = 2 
-    #         balloon_i = balloon.simulate_step()
-
-    plans = []
-    for i in range(num_plans):
-        plan_i = np.full((plan_steps, 3), fill_value=1.0/3.0)
-        # plan_i = jax.random.uniform(key, (plan_steps, 3))
-        # key, _ = jax.random.split(key)
-
-        up_down = np.random.choice([ 0, 2 ]) # down = 0 ; up = 2
-        length = np.random.randint(0, plan_steps, (1, ))[0]
-
-        for j in range(plan_steps): 
-            if j < length:
-                plan_i[j][up_down] += 1.0/3.0
-            else:
-                plan_i[j][1] += 1.0/3.0
-
-
-        plans.append(plan_i)
-
-    return plans
-
-class MPC2Agent(agent.Agent):
+class MPCDiscreteAgent(agent.Agent):
     
     def __init__(self, num_actions: int, observation_shape): # Sequence[int]
-        super(MPC2Agent, self).__init__(num_actions, observation_shape)
+        super(MPCDiscreteAgent, self).__init__(num_actions, observation_shape)
         self.forecast = None # WindField
         self.atmosphere = None # Atmosphere
 
@@ -160,28 +167,27 @@ class MPC2Agent(agent.Agent):
         self.key = jax.random.key(seed=0)
 
     def begin_episode(self, observation: np.ndarray) -> int:
-        # TODO: actually convert observation into an ndarray (it is a JaxBalloonState, see features.py)
-        # balloon = JaxBalloon(jax_balloon_state_from_observation(observation))
-        balloon = JaxBalloon(observation)
-        # initial_plan = np.full((self.plan_steps, 3), fill_value=0.5) # everything is equally likely
+        x = observation[1].km
+        y = observation[2].km
+        # print(x, y)
+        pressure = observation[3]
+        t = observation[0].seconds
+
+        # # t, x, y, pressure = observation
+        balloon = DeterministicDiscreteAltitudeModel(jnp.array([x, y, self.atmosphere.at_pressure(pressure).height.km, 0, t]), self.stride)
+        
+
+        print("BEFORE:", balloon.state[2], "AFTER:", balloon.simulate_step(2, jnp.array([0.0,0.0])).state[2])
+        
 
         initial_plans = jax.random.uniform(self.key, (50, self.plan_steps, 3))
         _, self.key = jax.random.split(self.key)
 
-        # initial_plans = get_initials_plans(self.key, balloon, self.atmosphere, 10, self.plan_steps)
-
-        # print("doing initialization")
         batched_cost = []
         for i in range(len(initial_plans)):
             batched_cost.append(jax_plan_cost(jnp.array(initial_plans[i]), balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
-        # print("finished initialization")
 
         which_min_cost = jnp.argmin(jnp.array(batched_cost))
-        # print(batched_cost)
-        # print("Choosing plan:", which_min_cost,"with cost:", batched_cost[which_min_cost])
-
-        # batched_cost_fn = jax.jit(jax.vmap(jax_plan_cost, in_axes=(0, None, None, None, None, None)))
-        # batched_cost = batched_cost_fn(initial_plans, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
 
         current_plan_cost = jax_plan_cost(self.plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
         
@@ -193,8 +199,11 @@ class MPC2Agent(agent.Agent):
         
         # print("Initial cost: ", jax_plan_cost(initial_plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
 
+        # initial_plan = np.full((self.plan_steps, 3), fill_value=0.5) # everything is equally likely
+        # initial_plan[:, 2]=1.0
+
         # no optimization
-        # self.plan = initial_plan
+        self.plan = initial_plan
 
         self.plan = grad_descent_optimizer(
             initial_plan, 
@@ -204,9 +213,7 @@ class MPC2Agent(agent.Agent):
             self.atmosphere,
             self.time_delta, 
             self.stride)
-        
-        # print("Cost of plan: ", jax_plan_cost(self.plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
-        
+                
         # self.plan = scipy_optimizer(
         #     initial_plan, 
         #     self.get_dplan,
@@ -224,7 +231,7 @@ class MPC2Agent(agent.Agent):
         return action
 
     def step(self, reward: float, observation: np.ndarray) -> int:
-        REPLANNING = True
+        REPLANNING = False
         observation: JaxBalloonState = observation
         # print(observation.battery_charge/observation.battery_capacity)
         if not REPLANNING:
