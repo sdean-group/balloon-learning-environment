@@ -10,14 +10,14 @@ import jax.numpy as jnp
 import scipy
 
 def jax_balloon_cost(balloon: JaxBalloon):
-    return (balloon.state.acs_power-0.5)**2
+    # return (balloon.state.acs_power-0.5)**2
     # return  1e-4 * (26436.27 - balloon.state.pressure)**2
-    # return (balloon.state.x)**2 + (balloon.state.y)**2
+    return (balloon.state.x/1000)**2 + (balloon.state.y/1000)**2
 
 def convert_plan_to_action(target_height, balloon: JaxBalloon, atmosphere: JaxAtmosphere):
     height = atmosphere.at_pressure(balloon.state.pressure).height.km
     action = jax.lax.cond(
-        jnp.abs(height - target_height) < 0.5,
+        jnp.abs(height - target_height) < 0.05,
         lambda _: 1,
         lambda op: jax.lax.cond(
             op[0] < op[1],
@@ -89,7 +89,7 @@ def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosph
             break
         plan -= dplan / jnp.linalg.norm(dplan)
 
-    print("GD", gradient_steps, f"{jax_plan_cost(initial_plan, balloon, forecast, atmosphere, time_delta, stride)} - {start_cost}")
+    print("GD", gradient_steps, f"{jax_plan_cost(plan, balloon, forecast, atmosphere, time_delta, stride)} - {start_cost}")
     return plan
 
 class MPC3Agent(agent.Agent):

@@ -12,19 +12,14 @@ import scipy
 def jax_balloon_cost(balloon: JaxBalloon):
     # return 0.0001*(26436.27 - balloon.state.pressure)**2
     # return (balloon.state.acs_power-0.5)**2
-    return (balloon.state.x/1000)**2 + (balloon.state.y/1000)**2 + 200 * (1 - balloon.state.battery_charge/balloon.state.battery_capacity)**2
+    return (balloon.state.x/1000)**2 + (balloon.state.y/1000)**2
 
-def convert_plan_to_action(target_height, balloon: JaxBalloon, atmosphere: JaxAtmosphere):
-    height = atmosphere.at_pressure(balloon.state.pressure).height.km
+def convert_plan_to_action(acs_control, balloon: JaxBalloon, atmosphere: JaxAtmosphere):
     action = jax.lax.cond(
-        jnp.abs(height - target_height) < 0.5,
-        lambda _: 1,
-        lambda op: jax.lax.cond(
-            op[0] < op[1],
-            lambda _: 2,
-            lambda _: 0,
-            operand=None),
-        operand=(height, target_height))
+        acs_control > 0,
+        lambda _: 2,
+        lambda _: 0,
+        operand=None)
     
     return action
 
@@ -50,7 +45,7 @@ def convert_plan_to_action(target_height, balloon: JaxBalloon, atmosphere: JaxAt
 @jax.jit
 def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: int, stride: int):
     cost = 0.0
-    discount_factor = 1.0 # 0.99
+    discount_factor = 0.99
 
     def scan_step(balloon_and_cost: tuple[JaxBalloon, float], i: int):
         balloon, cost = balloon_and_cost
@@ -97,7 +92,7 @@ def scipy_optimizer(initial_plan, cost, dcost_dplan, balloon, forecast, atmosphe
     print("Iterations:", opt_res.nit)
     return opt_res.x
 
-np.random.seed(seed=30)
+np.random.seed(seed=42)
 def make_plan(num_plans, num_steps, balloon:JaxBalloon, wind:JaxWindField, atmosphere:JaxAtmosphere, time_delta, stride):
     best_plan = -1
     best_cost = +np.inf
@@ -122,14 +117,18 @@ def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosph
     plan = initial_plan
     for gradient_steps in range(100):
         dplan = dcost_dplan(plan, balloon, forecast, atmosphere, time_delta, stride)
-        if abs(jnp.linalg.norm(dplan)) < 1e-7:
+        if  np.isnan(dplan).any() or abs(jnp.linalg.norm(dplan)) < 1e-7:
             print('Exiting early, |∂plan| =',abs(jnp.linalg.norm(dplan)))
             break
+        print(gradient_steps, abs(jnp.linalg.norm(dplan)))
         plan -= dplan / jnp.linalg.norm(dplan)
 
-    after_cost = jax_plan_cost(initial_plan, balloon, forecast, atmosphere, time_delta, stride)
+    after_cost = jax_plan_cost(plan, balloon, forecast, atmosphere, time_delta, stride)
     print("GD", gradient_steps, f"∆cost = {after_cost} - {start_cost} = {after_cost - start_cost}")
     return plan
+
+# def numerical_grad_descent_optimizer():
+#     pass
 
 class MPC4Agent(agent.Agent):
         
@@ -144,7 +143,7 @@ class MPC4Agent(agent.Agent):
         self.time_delta = 3*60
         self.stride = 60
 
-        self.plan_steps = (self.plan_time // self.time_delta) // 3
+        self.plan_steps = (self.plan_time // self.time_delta) #// 3
 
         self.plan = jnp.full((self.plan_steps, ), fill_value=1.0/3.0)
         self.i = 0
@@ -164,7 +163,7 @@ class MPC4Agent(agent.Agent):
         #if current_plan_cost < best_random_cost:
         #    initial_plan = self.plan
 
-        initial_plans = np.random.uniform(-1, 1, (50, self.plan_steps))
+        initial_plans = np.random.uniform(-1.0, 1.0, (50, self.plan_steps))
         # _, self.key = jax.random.split(self.key)
 
         batched_cost = []
@@ -173,38 +172,38 @@ class MPC4Agent(agent.Agent):
 
         initial_plan = initial_plans[np.argmin(batched_cost)]
         
-        def get_gradient():
-            gradient = np.zeros((self.plan_steps, ))
-            for i in range(self.plan_steps):
-                d = np.zeros((self.plan_steps, ))
-                ε = 0.01
-                d[i] = ε
-                before = jax_plan_cost(initial_plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
-                after = jax_plan_cost(initial_plan + d, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
-                gradient[i] = (after - before) / ε
-            return gradient
-        
         # self.plan = initial_plan
+        
+        # def get_gradient():
+        #     gradient = np.zeros((self.plan_steps, ))
+        #     for i in range(self.plan_steps):
+        #         d = np.zeros((self.plan_steps, ))
+        #         ε = 0.01
+        #         d[i] = ε
+        #         before = jax_plan_cost(initial_plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
+        #         after = jax_plan_cost(initial_plan + d, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
+        #         gradient[i] = (after - before) / ε
+        #     return gradient
+        
+        # plan = initial_plan
+        # for gd in range(10):
+        #     dplan = get_gradient()
+        #     if abs(jnp.linalg.norm(dplan)) < 1e-7:
+        #         print('Exiting early, |∂plan| =',abs(jnp.linalg.norm(dplan)))
+        #         break
+        #     plan -= 0.5* dplan / jnp.linalg.norm(dplan)
+        # print("∆ cost:", jax_plan_cost(plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride) - np.min(batched_cost))
+        # print('Took', gd, 'steps')
+        # self.plan = plan
 
-        plan = initial_plan
-        for gd in range(10):
-            dplan = get_gradient()
-            if abs(jnp.linalg.norm(dplan)) < 1e-7:
-                print('Exiting early, |∂plan| =',abs(jnp.linalg.norm(dplan)))
-                break
-            plan -= 0.5* dplan / jnp.linalg.norm(dplan)
-        print("∆ cost:", jax_plan_cost(plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride) - np.min(batched_cost))
-        print('Took', gd, 'steps')
-        self.plan = plan
-
-        # self.plan = grad_descent_optimizer(
-        #     initial_plan, 
-        #     self.get_dplan, 
-        #     balloon, 
-        #     self.forecast, 
-        #     self.atmosphere,
-        #     self.time_delta, 
-        #     self.stride)
+        self.plan = grad_descent_optimizer(
+            initial_plan, 
+            self.get_dplan, 
+            balloon, 
+            self.forecast, 
+            self.atmosphere,
+            self.time_delta, 
+            self.stride)
         
         # self.plan = scipy_optimizer(
         #     initial_plan,
