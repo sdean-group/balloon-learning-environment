@@ -23,61 +23,61 @@ def convert_plan_to_action(acs_control, balloon: JaxBalloon, atmosphere: JaxAtmo
     
     return action
 
-# @jax.jit
-# def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: 'int, seconds', stride: 'int, seconds'):
-#     cost = 0.0
-#     discount_factor = 0.99#1.00
-    
-#     def update_step(i, balloon_and_cost: tuple[JaxBalloon, float]):
-#         balloon, cost = balloon_and_cost
-
-#         wind_vector = wind_field.get_forecast(balloon.state.x/1000, balloon.state.y/1000, balloon.state.pressure, balloon.state.time_elapsed)
-        
-#         next_balloon = balloon.simulate_step_continuous(wind_vector, atmosphere, plan[i], time_delta, stride)
-        
-#         cost += (discount_factor**i) * jax_balloon_cost(next_balloon)
-
-#         return next_balloon, cost
-
-#     final_balloon, final_cost = jax.lax.fori_loop(0, len(plan), update_step, init_val=(balloon, cost))
-#     return final_cost
-
 @jax.jit
-def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: int, stride: int):
+def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: 'int, seconds', stride: 'int, seconds'):
     cost = 0.0
-    discount_factor = 0.99
-
-    def scan_step(balloon_and_cost: tuple[JaxBalloon, float], i: int):
+    discount_factor = 0.99#1.00
+    
+    def update_step(i, balloon_and_cost: tuple[JaxBalloon, float]):
         balloon, cost = balloon_and_cost
 
-        # Get the wind vector forecast based on the current balloon state
-        wind_vector = wind_field.get_forecast(
-            balloon.state.x / 1000, 
-            balloon.state.y / 1000, 
-            balloon.state.pressure, 
-            balloon.state.time_elapsed
-        )
-
-        # jax.debug.print("")
+        wind_vector = wind_field.get_forecast(balloon.state.x/1000, balloon.state.y/1000, balloon.state.pressure, balloon.state.time_elapsed)
         
-        # Simulate the next balloon state based on the plan at index i
-        next_balloon = balloon.simulate_step_continuous(
-            wind_vector, atmosphere, plan[i], time_delta, stride
-        )
+        next_balloon = balloon.simulate_step_continuous(wind_vector, atmosphere, plan[i], time_delta, stride)
         
-        # Update the cost with the discounted balloon cost
-        cost += (discount_factor ** i) * jax_balloon_cost(next_balloon)
+        cost += (discount_factor**i) * jax_balloon_cost(next_balloon)
 
-        return (next_balloon, cost), None  # No outputs required for scan
+        return next_balloon, cost
 
-    # Use jax.lax.scan to iterate over the plan indices
-    (final_balloon, final_cost), _ = jax.lax.scan(
-        scan_step, 
-        init=(balloon, cost),  # Initial values for balloon and cost
-        xs=jax.numpy.arange(len(plan))  # Indices of the plan
-    )
-    
+    final_balloon, final_cost = jax.lax.fori_loop(0, len(plan), update_step, init_val=(balloon, cost))
     return final_cost
+
+# @jax.jit
+# def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: int, stride: int):
+#     cost = 0.0
+#     discount_factor = 0.99
+
+#     def scan_step(balloon_and_cost: tuple[JaxBalloon, float], i: int):
+#         balloon, cost = balloon_and_cost
+
+#         # Get the wind vector forecast based on the current balloon state
+#         wind_vector = wind_field.get_forecast(
+#             balloon.state.x / 1000, 
+#             balloon.state.y / 1000, 
+#             balloon.state.pressure, 
+#             balloon.state.time_elapsed
+#         )
+
+#         # jax.debug.print("")
+        
+#         # Simulate the next balloon state based on the plan at index i
+#         next_balloon = balloon.simulate_step_continuous(
+#             wind_vector, atmosphere, plan[i], time_delta, stride
+#         )
+        
+#         # Update the cost with the discounted balloon cost
+#         cost += (discount_factor ** i) * jax_balloon_cost(next_balloon)
+
+#         return (next_balloon, cost), None  # No outputs required for scan
+
+#     # Use jax.lax.scan to iterate over the plan indices
+#     (final_balloon, final_cost), _ = jax.lax.scan(
+#         scan_step, 
+#         init=(balloon, cost),  # Initial values for balloon and cost
+#         xs=jax.numpy.arange(len(plan))  # Indices of the plan
+#     )
+
+#     return final_cost
 
 
 def scipy_optimizer(initial_plan, cost, dcost_dplan, balloon, forecast, atmosphere, time_delta, stride):
@@ -137,7 +137,9 @@ class MPC4Agent(agent.Agent):
         self.forecast = None # WindField
         self.atmosphere = None # Atmosphere
 
-        self.get_dplan = jax.jit(jax.grad(jax_plan_cost, argnums=0), static_argnums=(-1,-2))
+        # self.get_dplan = jax.jit(jax.grad(jax_plan_cost, argnums=0), static_argnums=(-1,-2))
+
+        self.get_dplan = jax.grad(jax_plan_cost, argnums=0)
 
         self.plan_time = 2*24*60*60
         self.time_delta = 3*60
