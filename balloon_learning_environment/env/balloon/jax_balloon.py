@@ -235,7 +235,8 @@ class JaxBalloon:
         def update_step(i, balloon):
             return balloon._simulate_step_internal(wind_vector, atmosphere, action, stride)
 
-        final_balloon = jax.lax.fori_loop(0, outer_stride//inner_stride, update_step, init_val=self)
+        final_balloon = jax.lax.fori_loop(0, 3, update_step, init_val=self)
+        # final_balloon = jax.lax.fori_loop(0, outer_stride//inner_stride, update_step, init_val=self)
         return final_balloon
     
     def simulate_step_continuous(

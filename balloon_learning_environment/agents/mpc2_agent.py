@@ -32,30 +32,34 @@ def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmospher
         wind_vector = wind_field.get_forecast(balloon.state.x/1000, balloon.state.y/1000, balloon.state.pressure, balloon.state.time_elapsed)
         
         down_balloon = balloon.simulate_step(wind_vector, atmosphere, 0, time_delta, stride)
-        stay_balloon = balloon.simulate_step(wind_vector, atmosphere, 1, time_delta, stride)
         up_balloon = balloon.simulate_step(wind_vector, atmosphere, 2, time_delta, stride)
+        # stay_balloon = balloon.simulate_step(wind_vector, atmosphere, 1, time_delta, stride)
         
         action_distribution = jax.nn.softmax(plan[i])
         cost += (discount_factor**i) * (action_distribution[0] * jax_balloon_cost(down_balloon) + \
-            action_distribution[1] * jax_balloon_cost(stay_balloon) + \
-            action_distribution[2] * jax_balloon_cost(up_balloon))
+            action_distribution[1] * jax_balloon_cost(up_balloon))
+            # action_distribution[1] * jax_balloon_cost(stay_balloon) + \
         
         # cost +=
         
-        next_balloon_which = jnp.argmax(action_distribution)
-        next_balloon = jax.lax.cond(next_balloon_which == 0,
-                                    lambda op: op[1],
-                                    lambda op: jax.lax.cond(
-                                        op[0] == 1,
-                                        lambda ops: ops[0],
-                                        lambda ops: ops[1],
-                                        operand=(op[2], op[3])),
-                                    operand=(next_balloon_which, down_balloon, stay_balloon, up_balloon))
+        # next_balloon_which = jnp.argmax(action_distribution)
+        # next_balloon = jax.lax.cond(next_balloon_which == 0,
+        #                             lambda op: op[1],
+        #                             lambda op: jax.lax.cond(
+        #                                 op[0] == 1,
+        #                                 lambda ops: ops[0],
+        #                                 lambda ops: ops[1],
+        #                                 operand=(op[2], op[3])),
+        #                             operand=(next_balloon_which, down_balloon, stay_balloon, up_balloon))
         # next_balloon = [ down_balloon, stay_balloon, up_balloon ][jnp.argmax(action_distribution)]
         # jax.debug.print("{x}", x=cost)
+
+        next_balloon = balloon.simulate_step_continuous(
+            wind_vector, atmosphere, action_distribution[1]-action_distribution[0], time_delta, stride)
         return next_balloon, cost
 
     final_balloon, final_cost = jax.lax.fori_loop(0, len(plan), update_step, init_val=(balloon, cost))
+    # final_balloon, final_cost = jax.lax.fori_loop(0, 960, update_step, init_val=(balloon, cost))
     return final_cost
 
 def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, time_delta, stride):
@@ -81,14 +85,14 @@ def jax_scipy_optimizer(initial_plan, balloon, forecast, atmosphere, time_delta,
         x0=initial_plan.flatten(), 
         args=(balloon, forecast, atmosphere, time_delta, stride), 
         method="BFGS")
-    return opt_res.x.reshape(-1, 3)
+    return opt_res.x.reshape(-1, 2)
 
 def scipy_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, time_delta, stride):
     def cost_with_1d_array(plan, balloon, forecast, atmosphere, time_delta, stride):
-        return jax_plan_cost(plan.reshape(-1, 3), balloon, forecast, atmosphere, time_delta, stride)
+        return jax_plan_cost(plan.reshape(-1, 2), balloon, forecast, atmosphere, time_delta, stride)
     
     def grad_with_1d_array(plan, balloon, forecast, atmosphere, time_delta, stride):
-        return dcost_dplan(plan.reshape(-1, 3),balloon, forecast, atmosphere, time_delta, stride).flatten()
+        return dcost_dplan(plan.reshape(-1, 2),balloon, forecast, atmosphere, time_delta, stride).flatten()
 
     # hessian = jax.hessian(grad_with_1d_array)
     opt_res = scipy.optimize.minimize(
@@ -99,7 +103,7 @@ def scipy_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, ti
         # hess=hessian,
         method="CG")
     print("optimization iterations:", opt_res.nit)
-    return opt_res.x.reshape(-1, 3)
+    return opt_res.x.reshape(-1, 2)
 
 def get_initials_plans(key, balloon: JaxBalloon,  atmosphere: JaxAtmosphere, num_plans, plan_steps):
     # return jnp.array([ jnp.full((plan_steps, 3), fill_value=1.0/3.0) ])
@@ -165,7 +169,7 @@ class MPC2Agent(agent.Agent):
         balloon = JaxBalloon(observation)
         # initial_plan = np.full((self.plan_steps, 3), fill_value=0.5) # everything is equally likely
 
-        initial_plans = jax.random.uniform(self.key, (50, self.plan_steps, 3))
+        initial_plans = jax.random.uniform(self.key, (50, self.plan_steps, 2))
         _, self.key = jax.random.split(self.key)
 
         # initial_plans = get_initials_plans(self.key, balloon, self.atmosphere, 10, self.plan_steps)
