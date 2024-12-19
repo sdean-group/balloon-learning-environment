@@ -145,7 +145,29 @@ def test_simulate_one_step():
         print(f"Iteration {i}")
         compare_prints(ble_balloon.state, jax_balloon.state)
 
+def test_simulate_step():
+    balloon_state = initialize_balloon()
+
+    ble_balloon =  balloon.Balloon(balloon_state)
+    jax_balloon = JaxBalloon(JaxBalloonState.from_ble_state(balloon_state))
+    
+
+    # update ble balloon
+    action = control.AltitudeControlCommand.UP
+    wind_vector = get_wind_sample(balloon_state)
+    ble_balloon.simulate_step(wind_vector, atmosphere, action, time_delta=dt.timedelta(seconds=100*10), stride=dt.timedelta(seconds=10))
+
+    if ble_balloon.state.status != balloon.BalloonStatus.OK:
+        print("got not OK status")
+
+    # update jax balloon
+    action = 2
+    jax_wind_vector = jnp.array([ wind_vector.u.meters_per_second, wind_vector.v.meters_per_second ])
+    jax_balloon = jax_balloon.simulate_step(jax_wind_vector, atmosphere.to_jax_atmopshere(), action, time_delta=100*10, stride=10) 
+
+    compare_prints(ble_balloon.state, jax_balloon.state)
 
 # test_initialization()
-
 test_simulate_one_step()
+test_simulate_step()
+

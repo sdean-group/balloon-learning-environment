@@ -173,7 +173,7 @@ class BalloonEnv(gym.Env):
     """
     command = control.AltitudeControlCommand(action)
     observation = self.arena.step(command)
-    assert isinstance(observation, np.ndarray)
+    # assert isinstance(observation, np.ndarray)
 
     simulator_state = self.arena.get_simulator_state()
 

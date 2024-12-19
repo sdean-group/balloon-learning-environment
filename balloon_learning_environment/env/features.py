@@ -38,6 +38,7 @@ from balloon_learning_environment.env import simulator_data
 from balloon_learning_environment.env import wind_field
 from balloon_learning_environment.env import wind_gp
 from balloon_learning_environment.env.balloon import balloon
+from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloonState
 from balloon_learning_environment.env.balloon import control
 from balloon_learning_environment.env.balloon import power_table
 from balloon_learning_environment.env.balloon import pressure_range_builder
@@ -94,6 +95,28 @@ class FeatureConstructor(abc.ABC):
   def observation_space(self) -> gym.Space:
     """Gets the observation space specification for the feature vector."""
 
+class MPC2Features:
+  def __init__(self, forecast: wind_field.WindField,
+               atmosphere: standard_atmosphere.Atmosphere):
+    self.observation = None
+
+  def observe(self, observation: simulator_data.SimulatorObservation):
+    self.observation = observation
+
+  def get_features(self) -> np.ndarray:
+    balloon_observation = self.observation.balloon_observation
+    # TODO: eventually actually convert this into a vector
+    return JaxBalloonState.from_ble_state(balloon_observation)
+
+  @property
+  def observation_space(self) -> gym.Space:
+    lo = np.full((2, ), -np.inf)
+    hi = np.full((2, ), +np.inf)
+
+    # TODO: this is broken
+
+    return gym.spaces.Box(low=lo, high=hi)
+
 class MPCFeatures:
   """
   [ elapsed_time x y pressure ]
@@ -119,6 +142,8 @@ class MPCFeatures:
   def observation_space(self) -> gym.Space:
     lo = np.full((2, ), -np.inf)
     hi = np.full((2, ), +np.inf)
+
+    # TODO: this is broken
 
     return gym.spaces.Box(low=lo, high=hi)
   

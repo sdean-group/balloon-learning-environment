@@ -29,28 +29,36 @@ The provided agents are:
 from typing import Callable, Optional
 
 from balloon_learning_environment.agents import agent
-from balloon_learning_environment.agents import dqn_agent
-from balloon_learning_environment.agents import mlp_agent
+# from balloon_learning_environment.agents import dqn_agent
+# from balloon_learning_environment.agents import mlp_agent
 from balloon_learning_environment.agents import perciatelli44
-from balloon_learning_environment.agents import quantile_agent
+# from balloon_learning_environment.agents import quantile_agent
 from balloon_learning_environment.agents import random_walk_agent
 from balloon_learning_environment.agents import station_seeker_agent
 from balloon_learning_environment.agents import mpc_agent
+from balloon_learning_environment.agents import mpc_discrete_agent
+from balloon_learning_environment.agents import mpc2_agent
+from balloon_learning_environment.agents import mpc3_agent
+from balloon_learning_environment.agents import mpc4_agent
 from balloon_learning_environment.agents import copyagent
 
 
 BASE_DIR = 'balloon_learning_environment/agents/configs'
 REGISTRY = {
     'random': (agent.RandomAgent, None),
-    'mlp': (mlp_agent.MLPAgent, f'{BASE_DIR}/mlp.gin'),
-    'dqn': (dqn_agent.DQNAgent, f'{BASE_DIR}/dqn.gin'),
+    # 'mlp': (mlp_agent.MLPAgent, f'{BASE_DIR}/mlp.gin'),
+    # 'dqn': (dqn_agent.DQNAgent, f'{BASE_DIR}/dqn.gin'),
     'perciatelli44': (perciatelli44.Perciatelli44, None),
-    'quantile': (quantile_agent.QuantileAgent, f'{BASE_DIR}/quantile.gin'),
-    'finetune_perciatelli': (quantile_agent.QuantileAgent,
-                             f'{BASE_DIR}/finetune_perciatelli.gin'),
+    # 'quantile': (quantile_agent.QuantileAgent, f'{BASE_DIR}/quantile.gin'),
+    # 'finetune_perciatelli': (quantile_agent.QuantileAgent,
+                            #  f'{BASE_DIR}/finetune_perciatelli.gin'),
     'station_seeker': (station_seeker_agent.StationSeekerAgent, None),
     'random_walk': (random_walk_agent.RandomWalkAgent, None),
     'mpc': (mpc_agent.MPCAgent, None),
+    'mpc_discrete': (mpc_discrete_agent.MPCDiscreteAgent, None),
+    'mpc2': (mpc2_agent.MPC2Agent, None),
+    'mpc3': (mpc3_agent.MPC3Agent, None),
+    'mpc4': (mpc4_agent.MPC4Agent, None),
     'copyagent': (copyagent.Follower, None),
   }
 

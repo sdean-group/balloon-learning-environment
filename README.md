@@ -114,7 +114,13 @@ $ pip install .[acme]
 ## Evaluate MPC Agent
 
 ```
-python -m balloon_learning_environment.eval.eval   --agent=mpc --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=mpc
+JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval   --agent=mpc --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=mpc
+
+JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval   --agent=mpc2 --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=mpc2
+
+JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval   --agent=perciatelli44 --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=perciatelli
+
+
 ```
 
 ## Ensure the BLE is Using Your GPU/TPU
