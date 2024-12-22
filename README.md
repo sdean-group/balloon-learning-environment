@@ -13,6 +13,9 @@ learning algorithms, and is a followup to the Nature paper
 ["Autonomous navigation of stratospheric balloons using reinforcement learning"](https://www.nature.com/articles/s41586-020-2939-8).
 
 
+![flight path gif](compressed_spedup_flight_path.gif)
+
+
 ## Mac Installation
 
 ```
