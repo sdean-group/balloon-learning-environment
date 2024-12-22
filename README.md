@@ -18,6 +18,8 @@ learning algorithms, and is a followup to the Nature paper
 
 ## Mac Installation
 
+We have not tested these on personal computers on Windows/Linux, but may work (if not see g2 section).
+
 ```
 git clone --branch python3.9 git@github.com:sdean-group/atmosnav.git
 cd balloon-learning-environment/ # this repository already cloned
@@ -41,6 +43,8 @@ JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval   --agent=p
 ```
 
 ## g2 Installation
+
+These are different due to G2, but should also work (just unnecessary steps) on personal machines
 
 ```
 git clone --branch python3.9 git@github.com:sdean-group/atmosnav.git
