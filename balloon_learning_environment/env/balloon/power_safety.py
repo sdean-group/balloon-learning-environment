@@ -49,6 +49,9 @@ class PowerSafetyLayer():
     # the solar panels.
     self._sunrise_with_hysteresis = self._sunrise + self._time_hysteresis
 
+
+    self._triggered = 0
+
   def get_action(
       self,
       action: control.AltitudeControlCommand,
@@ -116,10 +119,10 @@ class PowerSafetyLayer():
 
     # It's nighttime, but we aren't in danger of running out of power.
     return action
-
-  @staticmethod
-  def get_paused_action(
+  
+  def get_paused_action(self,
       action: control.AltitudeControlCommand) -> control.AltitudeControlCommand:
+    self._triggered+=1
     # Down uses more power than up or stay, so we cannot allow it.
     if action == control.AltitudeControlCommand.DOWN:
       return control.AltitudeControlCommand.STAY
