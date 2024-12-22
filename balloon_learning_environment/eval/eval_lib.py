@@ -213,6 +213,7 @@ def eval_agent(agent: base_agent.Agent,
                  len(eval_suite.seeds),
                  seed,
                  eval_result)
+    logging.info('Power safety layer violations: %d', env.arena.get_balloon_state().power_safety_layer._triggered)
     results.append(eval_result)
 
   return results
