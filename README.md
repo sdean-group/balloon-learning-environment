@@ -13,11 +13,35 @@ learning algorithms, and is a followup to the Nature paper
 ["Autonomous navigation of stratospheric balloons using reinforcement learning"](https://www.nature.com/articles/s41586-020-2939-8).
 
 
+## Mac Installation
+
+```
+git clone --branch python3.9 git@github.com:sdean-group/atmosnav.git
+cd balloon-learning-environment/ # this repository already cloned
+conda create --name ble python=3.9
+conda activate ble
+pip install --upgrade pip
+pip install balloon_learning_environment
+pip install --no-deps -e ../atmosnav
+```
+
+## Evaluate MPC Agent
+
+Can also add --renderer=matplotlib to show live animation
+
+```
+JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval   --agent=mpc --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=mpc
+
+JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval   --agent=mpc2 --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=mpc2
+
+JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval   --agent=perciatelli44 --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=perciatelli
+```
+
 ## g2 Installation
 
 ```
 git clone --branch python3.9 git@github.com:sdean-group/atmosnav.git
-git clone git@github.com:bananaaaaas/balloon-learning-environment.git
+git clone git@github.com:sdean-group/balloon-learning-environment.git
 cd balloon-learning-environment/
 conda create --name ble python=3.9
 conda activate ble
@@ -62,17 +86,6 @@ Finaly, find a line similar to the string below on your g2 terminal print-out:\
 
 Copy `127.0.0.1:PORT` with `PORT` replaced and paste it on your local browser. Use the string after `token` as your "login password".
 
-## Mac Installation
-
-```
-git clone --branch python3.9 git@github.com:sdean-group/atmosnav.git
-cd balloon-learning-environment/
-conda create --name ble python=3.9
-conda activate ble
-pip install --upgrade pip
-pip install balloon_learning_environment
-pip install --no-deps -e ../atmosnav
-```
 
 ## Getting Started
 
@@ -111,17 +124,6 @@ $ pip install --upgrade pip
 $ pip install .[acme]
 ```
 
-## Evaluate MPC Agent
-
-```
-JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval   --agent=mpc --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=mpc
-
-JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval   --agent=mpc2 --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=mpc2
-
-JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval   --agent=perciatelli44 --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=perciatelli
-
-
-```
 
 ## Ensure the BLE is Using Your GPU/TPU
 
