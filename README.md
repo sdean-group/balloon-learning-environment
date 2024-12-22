@@ -30,7 +30,7 @@ Highlights of files we contributed to that were mentioned in the report.
 This is an easier installation than the g2-installation, but has only been tested on MacOS. If does not work see g2 installation.
 
 ```
-git clone --branch python3.9 git@github.com:sdean-group/atmosnav.git
+git clone --branch python3.9 git@github.com:sdean-group/atmosnav.git # need atmosnav to be a 'sibling' of ble folder
 cd balloon-learning-environment/ # this repository already cloned
 conda create --name ble python=3.9
 conda activate ble
@@ -43,10 +43,14 @@ pip install --no-deps -e ../atmosnav
 
 Can also add --renderer=matplotlib to show live animation
 
+Can change suite to new_eval to use seeds we ran in our report.
+
 ```
 JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval   --agent=mpc --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=mpc
 
 JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval   --agent=mpc2 --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=mpc2
+
+JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval   --agent=station_seeker --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=perciatelli
 
 JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval   --agent=perciatelli44 --suite=micro_eval --output_dir=/tmp/ble/eval --feature_constructor=perciatelli
 ```
