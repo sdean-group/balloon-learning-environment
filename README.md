@@ -15,10 +15,19 @@ learning algorithms, and is a followup to the Nature paper
 
 ![flight path gif](compressed_spedup_flight_path.gif)
 
+## Our contributions
 
-## Mac Installation
+Highlights of files we contributed to that were mentioned in the report.
 
-We have not tested these on personal computers on Windows/Linux, but may work (if not see g2 section).
+* Main MPC Agent: balloon_learning_environment/agents/mpc_agent.py
+  - other experimental MPC agents are in the same directory
+* Jax Version of Wind Field: balloon_learning_environment/env/generative_wind_field.py
+* Jax Version of Atmosphere: balloon_learning_environment/env/balloon/standard_atmosphere.py
+* Jax Version of Balloon: balloon_learning_environment/env/balloon/jax_balloon.py
+
+## Installation
+
+This is an easier installation than the g2-installation, but has only been tested on MacOS. If does not work see g2 installation.
 
 ```
 git clone --branch python3.9 git@github.com:sdean-group/atmosnav.git
@@ -30,7 +39,7 @@ pip install balloon_learning_environment
 pip install --no-deps -e ../atmosnav
 ```
 
-## Evaluate MPC Agent
+## Evaluate Agents
 
 Can also add --renderer=matplotlib to show live animation
 
