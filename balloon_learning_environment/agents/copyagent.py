@@ -4,6 +4,7 @@ from balloon_learning_environment.agents import agent
 from balloon_learning_environment.env.wind_field import JaxWindField
 from balloon_learning_environment.models import models
 from balloon_learning_environment.utils import units
+# from balloon_learning_environment.env.balloon.standard_atmosphere import
 import numpy as np
 from typing import Optional, Sequence, Union
 import jax.numpy as jnp
@@ -17,13 +18,12 @@ import atmosnav
 def convert_plan_to_actions(plan, observation, i, follower):
     i %= len(plan)
     _, _, _, pressure = observation
-    height = jax.jit(follower.jax_atmosphere.at_pressure)(pressure).height
-    # pressure = atmosnav.utils.alt2p(height.km)
-    # pressure = atmosphere.at_height(height).pressure
-    pressure = jax.jit(follower.jax_atmosphere.at_height)(height).pressure
-
-    if abs(pressure - plan[i]) < 0.2:
-        return 1 #STAY
+    altitude = follower.atmosphere.at_pressure(pressure).height.km
+    
+    # Change the following to test: 
+    # pressure = follower.atmosphere.at_height(units.Distance(km=altitude)).pressure
+    # pressure = jax.jit(atmosnav.utils.alt2p)(altitude)
+    pressure = follower.jax_atmosphere.at_height(altitude*1000).pressure
 
     if pressure < plan[i]:
         return 0 # UP
