@@ -15,3 +15,5 @@ balloon_learning_environment/colab/.ipynb_checkpoints/
 *.npy
 
 .DS_Store
+
+eval/
