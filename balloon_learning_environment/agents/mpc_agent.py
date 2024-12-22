@@ -84,11 +84,11 @@ def make_plan(start_time, num_plans, num_steps, balloon, wind, atmosphere, waypo
     best_plan = -1
     best_cost = +np.inf
     for i in range(num_plans):
-        # plan = 13 + 9*np.random.rand(1)
-        # plan = np.full((num_steps, 1), plan)
+        plan = 13 + 9*np.random.rand(1)
+        plan = np.full((num_steps, 1), plan)
 
-        plan = 22*np.random.random(1) + np.sin(2*np.pi*np.random.rand(1)*np.arange(num_steps)/10)
-        plan = np.reshape(plan, (num_steps, 1))
+        # plan = 22*np.random.random(1) + np.sin(2*np.pi*np.random.rand(1)*np.arange(num_steps)/10)
+        # plan = np.reshape(plan, (num_steps, 1))
 
         cost = cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, integration_time_step)
         # print(cost)
@@ -155,7 +155,7 @@ class MPCAgent(agent.Agent):
 
         # # t, x, y, pressure = observation
         balloon = make_weather_balloon(x, y, pressure, t, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
-        self.plan, best_cost = make_plan(t, 50, 240, balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
+        self.plan, best_cost = make_plan(t, 100, 240, balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
         for i in range(100):
             # start_time, dt, balloon, plan, wind
             dplan = gradient_at(t, balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
@@ -164,8 +164,9 @@ class MPCAgent(agent.Agent):
             self.plan -= dplan / (np.linalg.norm(dplan) + 0.0001)
         # print(self.plan[self.i])
         # print("dplan: ", dplan)
-        print("Iterations:", i)
-        print("∆ cost:", cost_at(t, balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step) - best_cost)
+
+        # print("Iterations:", i)
+        # print("∆ cost:", cost_at(t, balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step) - best_cost)
 
         self.i = 0
         action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
@@ -206,10 +207,11 @@ class MPCAgent(agent.Agent):
     def step_no_bug(self, reward: float, observation: np.ndarray) -> int:
         REPLANNING = True
         if REPLANNING:
-            N = 1
-            if self.i > 0 and self.i%N == 0:
+            N = 0
+            if N==0 or (self.i > 0 and self.i%N == 0):
                 return self.begin_episode(observation)
             else:
+                print('don"t replan')
                 self.i += 1
                 action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
                 return action
