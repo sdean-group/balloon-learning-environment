@@ -60,6 +60,8 @@ class PowerSafetyLayer():
       battery_charge: units.Energy,
       battery_capacity: units.Energy,
   ) -> control.AltitudeControlCommand:
+    
+    print("going through power safety layer", battery_charge.watt_hours / battery_capacity.watt_hours)
     """Gets an action recommended by the power safety layer.
 
     If the balloon has plenty of energy, the action will pass through.
@@ -93,6 +95,7 @@ class PowerSafetyLayer():
       # resume control until the battery has more charge.
       soc = battery_charge / battery_capacity
       if self.navigation_is_paused and soc < self._soc_restart:
+        print("paused action")
         return self.get_paused_action(action)
 
       # It is daytime 🌞. For the system we are modeling, we don't need to
@@ -104,6 +107,7 @@ class PowerSafetyLayer():
 
     # Everything after here is nighttime 🌝.
     if self.navigation_is_paused:  # We've already decided to pause control.
+      print("paused action")
       return self.get_paused_action(action)
 
     # Decide whether we should pause control now.
@@ -115,6 +119,7 @@ class PowerSafetyLayer():
         (battery_charge - floating_charge) / battery_capacity)
     if expected_remaining_normalized_charge < self._soc_min:
       self.navigation_is_paused = True
+      print("paused action")
       return self.get_paused_action(action)
 
     # It's nighttime, but we aren't in danger of running out of power.

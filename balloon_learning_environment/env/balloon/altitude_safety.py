@@ -88,12 +88,15 @@ class AltitudeSafetyLayer:
 
     if self._state_machine.state == _AltitudeState.VERY_LOW:
       # If the balloon is too low, make it ascend.
+      print('altitude safety layer violated')
       return control.AltitudeControlCommand.UP
     elif self._state_machine.state == _AltitudeState.LOW:
       # If the balloon is almost too low, don't let it go lower.
       if action == control.AltitudeControlCommand.DOWN:
+        print('altitude safety layer violated')
         return control.AltitudeControlCommand.STAY
 
+    print('altitude safety layer passed (no violation)')
     return action
 
   @property

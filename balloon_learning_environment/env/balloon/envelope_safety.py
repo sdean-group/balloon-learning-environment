@@ -126,13 +126,16 @@ class EnvelopeSafetyLayer:
 
     if (self._state_machine.state in
         (_SuperpressureState.LOW_CRITICAL, _SuperpressureState.HIGH_CRITICAL)):
+      print("envelope safety layer triggered")
       return control.AltitudeControlCommand.UP
 
     if (self._state_machine.state in
         (_SuperpressureState.LOW, _SuperpressureState.HIGH)):
       if action == control.AltitudeControlCommand.DOWN:
+        print("envelope safety layer triggered")
         return control.AltitudeControlCommand.STAY
 
+    print("envelope safety layer passed (no violation)")
     return action
 
   @property

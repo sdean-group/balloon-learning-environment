@@ -9,7 +9,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import os
 
 
-SEED = 22
+SEED = 8
 REWARDS = []
 ATMOSPHERE = Atmosphere(key=jax.random.key(seed=0))
 
@@ -106,9 +106,9 @@ def animate_flight_path(named_flight_paths, fig, ax):
 
 
 filepaths = [
-    'eval/new_eval/mpc.json',
-    'eval/new_eval/perciatelli44.json',
-    'eval/new_eval/station_seeker.json'
+    'eval/test/mpc.json',
+    'eval/test/perciatelli44.json',
+    # 'eval/new_eval/station_seeker.json'
 ]
 
 named_flight_paths = [ (get_agent_name(filepath), get_flight_path(filepath)) for filepath in filepaths ]
