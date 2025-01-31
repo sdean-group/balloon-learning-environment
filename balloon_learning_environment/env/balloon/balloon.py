@@ -43,7 +43,7 @@ Typical usage:
 import dataclasses
 import datetime as dt
 import enum
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Union
 
 from absl import logging
 from balloon_learning_environment.env import wind_field
@@ -59,6 +59,8 @@ from balloon_learning_environment.utils import constants
 from balloon_learning_environment.utils import spherical_geometry
 from balloon_learning_environment.utils import units
 import numpy as np
+
+from typing import Union
 
 import s2sphere as s2
 
@@ -264,7 +266,7 @@ class Balloon:
       self,
       wind_vector: wind_field.WindVector,
       atmosphere: standard_atmosphere.Atmosphere,
-      action: control.AltitudeControlCommand,
+      action: Union[control.AltitudeControlCommand, float],
       time_delta: dt.timedelta,
       stride: dt.timedelta = dt.timedelta(seconds=10),
   ) -> None:
@@ -289,6 +291,9 @@ class Balloon:
         'Stepping balloon after a terminal event occured. '
         f'({self.state.status.name})')
 
+    # Want to enable the environment to work with continuous and discrete actions
+    using_discrete = isinstance(action, control.AltitudeControlCommand)
+
     # The safety layers may prevent some actions from taking effect in
     # certain situations. While the correct interpretation
     # is, e.g., that even when a down action is commanded the altitude control
@@ -302,15 +307,17 @@ class Balloon:
     # This is because ascending shouldn't be harmful to superpressure in most
     # situtations.
     effective_action = action
-    if self.state.power_safety_layer_enabled:
-      effective_action = self.state.power_safety_layer.get_action(
-          effective_action, self.state.date_time,
-          self.state.nighttime_power_load, self.state.battery_charge,
-          self.state.battery_capacity)
-    effective_action = self.state.envelope_safety_layer.get_action(
-        effective_action, self.state.superpressure)
-    effective_action = self.state.altitude_safety_layer.get_action(
-        effective_action, atmosphere, self.state.pressure)
+    if using_discrete:
+      # NOTE: continuous actions don't have any safety layers implemented
+      if self.state.power_safety_layer_enabled:
+        effective_action = self.state.power_safety_layer.get_action(
+            effective_action, self.state.date_time,
+            self.state.nighttime_power_load, self.state.battery_charge,
+            self.state.battery_capacity)
+      effective_action = self.state.envelope_safety_layer.get_action(
+          effective_action, self.state.superpressure)
+      effective_action = self.state.altitude_safety_layer.get_action(
+          effective_action, atmosphere, self.state.pressure)
 
     outer_stride = int(time_delta.total_seconds())
     inner_stride = int(stride.total_seconds())
@@ -319,8 +326,28 @@ class Balloon:
         f'multiple of the inner simulation stride (stride={stride})')
 
     for _ in range(outer_stride // inner_stride):
-      state_changes = _simulate_step_internal(
+
+      # Choose which dynamics to use based on action type
+      if using_discrete:
+
+        # NOTE: this version simply uses the discrete stuff,
+        # state_changes = _simulate_step_internal(
+        #     self.state, wind_vector, atmosphere, effective_action, stride)
+
+        # NOTE: this version casts discrete -> continuous
+        continuous_action = 0.0
+        if effective_action == control.AltitudeControlCommand.UP: continuous_action = 1.0
+        elif effective_action == control.AltitudeControlCommand.DOWN: continuous_action = -1.0
+        state_changes = _simulate_step_continuous_internal(
+          self.state, wind_vector, atmosphere, continuous_action, stride)
+
+        # NOTE: they seem to be equivalent (after testing some seeds)
+
+      else:
+        # print('doing continuous dynamics')
+        state_changes = _simulate_step_continuous_internal(
           self.state, wind_vector, atmosphere, effective_action, stride)
+
       for k, v in state_changes.items():
         setattr(self.state, k, v)
 
@@ -351,7 +378,6 @@ class Balloon:
 def _clip(x, minval, maxval):
   """A clip function that should be faster than numpy for scalars."""
   return min(max(x, minval), maxval)
-
 
 def _simulate_step_internal(
     state: BalloonState,
@@ -611,3 +637,179 @@ def calculate_superpressure_and_volume(
         envelope_volume - pressure)
 
   return envelope_volume, superpressure
+
+def _simulate_step_continuous_internal(
+    state: BalloonState,
+    wind_vector: wind_field.WindVector,
+    atmosphere: standard_atmosphere.Atmosphere,
+    action: float,
+    stride: dt.timedelta,
+):
+
+  state_changes = {}
+
+  # NOTE(scandido): In the original simulator we modeled this using the
+  # stochastic hybrid automaton to use a typical ODE solver. For the purposes
+  # of this benchmark we have chosen to write the physics in a single, concise
+  # "step forward in time" function so folks can more easily inspect the
+  # model and assumptions.
+
+  ## Step 1: The balloon moves with the wind 🌬.
+
+  # NOTE(scandido): We should adjust this slightly to account for the altitude
+  # of the balloon but it's a small effect we ignore.
+  state_changes['x'] = state.x + (wind_vector.u * stride)
+  state_changes['y'] = state.y + (wind_vector.v * stride)
+
+  ## Step 2: The balloon moves up and down based on the buoyancy of the flight
+  # system 🦆.
+
+  # Compute the differential ascent rate.
+  #
+  # mg = Fb + Fd  (steady state)
+  #    = rho Volume g - 1/2 rho (d^2h/dt^2) C_drag A
+  #
+  #                   rho Volume g - mg
+  #  ==> d^2h/dt^2 = -----------------
+  #                  1/2 rho C_drag A
+  #
+  # C_drag is via linear fit during the ascent model.
+  # A ~ displacement^(2/3)
+
+  rho_air = (state.pressure * constants.DRY_AIR_MOLAR_MASS) / (
+      constants.UNIVERSAL_GAS_CONSTANT * state.ambient_temperature)
+
+  drag = state.envelope_cod * state.envelope_volume**(2.0 / 3.0)
+
+  total_flight_system_mass = (
+      constants.HE_MOLAR_MASS * state.mols_lift_gas +
+      constants.DRY_AIR_MOLAR_MASS * state.mols_air + state.envelope_mass +
+      state.payload_mass)
+
+  direction = (1.0 if rho_air * state.envelope_volume >=
+               total_flight_system_mass else -1.0)
+  dh_dt = direction * np.sqrt(  # [m/s]
+      np.abs(2 * (rho_air * state.envelope_volume -
+                  total_flight_system_mass) * constants.GRAVITY /
+             (rho_air * drag)))
+
+  # We have the ascent rate in [m/s] but what we really care about is the
+  # differential change in our state variable, pressure. Our pressure to
+  # height map is a point-wise set of coordinates and we use a linear
+  # interpolation. Thus, a local approximation of dp/dt is just a linear
+  # factor away from dh/dt.
+  #
+  # Specifically:
+  #
+  #   p = m * h + b ==( chain rule ) ==> dp/dt = dp/dh * dh/dt = m * dh/dt
+  dp = 1.0  # [Pa] A small pressure delta.
+  height0 = atmosphere.at_pressure(state.pressure).height.meters
+  height1 = atmosphere.at_pressure(state.pressure +
+                                   direction * dp).height.meters
+  dp_dh = direction * dp / (height1 - height0)
+  # print("dp_dh: ", dp_dh)
+  dp_dt = dp_dh * dh_dt
+  state_changes['pressure'] = state.pressure + dp_dt * stride.total_seconds()
+
+  ## Step 3: Look up the ambient temperature, upwelling infrared radiation,
+  # and solar radiation, and calculate the internal temperature of the
+  # balloon 🌡.
+  
+  # print("C(b): ", state.latlng)
+  solar_elevation, _, solar_flux = solar.solar_calculator(
+      state.latlng, state.date_time)  
+  # print("solar_elevation(b)", solar_elevation)      
+
+  # Use standard atmosphere for temperature.
+  # A longer term goal would be to create a model with temperature lapse
+  # variability.
+  state_changes['ambient_temperature'] = atmosphere.at_pressure(
+      state.pressure).temperature
+
+  # TODO(scandido): Consider putting the main equations (dbtemp_dt) here to
+  # match the rest of the file.
+  d_internal_temp = thermal.d_balloon_temperature_dt(
+      state.envelope_volume, state.envelope_mass, state.internal_temperature,
+      state.ambient_temperature, state.pressure, solar_elevation,
+      solar_flux, state.upwelling_infrared)
+  state_changes['internal_temperature'] = (
+      state.internal_temperature + d_internal_temp * stride.total_seconds())
+
+  ## Step 4: Calculate superpressure and volume of the balloon 🎈.
+  state_changes['envelope_volume'], state_changes['superpressure'] = (
+      calculate_superpressure_and_volume(
+          state.mols_lift_gas,
+          state.mols_air,
+          state.internal_temperature,
+          state.pressure,
+          state.envelope_volume_base,
+          state.envelope_volume_dv_pressure))
+
+  if state_changes['superpressure'] > state.envelope_max_superpressure:
+    state_changes['status'] = BalloonStatus.BURST
+  if state_changes['superpressure'] <= 0.0:
+    state_changes['status'] = BalloonStatus.ZEROPRESSURE
+
+  ## Step 5: Calculate, based on desired action, whether we'll use the
+  # altitude control system (ACS) ⚙️. Adjust power usage accordingly.
+
+  valve_area = np.pi * state.acs_valve_hole_diameter.meters**2 / 4.0
+  default_valve_hole_cd = 0.62
+  gas_density = (state.superpressure + state.pressure) * constants.DRY_AIR_MOLAR_MASS / (
+      constants.UNIVERSAL_GAS_CONSTANT * state.internal_temperature)
+
+  if action > 0:  # Venting (positive action)
+      venting_factor = action  # Scale venting based on action magnitude
+      state_changes['acs_power'] = units.Power(watts=0.0)
+      state_changes['acs_mass_flow'] = (
+          -venting_factor * default_valve_hole_cd * valve_area *
+          np.sqrt(2.0 * state.superpressure * gas_density)
+      )
+  elif action < 0:  # Compression (negative action)
+      compression_factor = -action  # Scale compression based on action magnitude
+      state_changes['acs_power'] = units.Power(watts=acs.get_most_efficient_power(state.pressure_ratio).watts * compression_factor)
+      efficiency = acs.get_fan_efficiency(state.pressure_ratio, state_changes['acs_power'])
+      state_changes['acs_mass_flow'] = acs.get_mass_flow(
+          state_changes['acs_power'], efficiency)
+  else:  # action == 0.0
+      state_changes['acs_power'] = units.Power(watts=0.0)
+      state_changes['acs_mass_flow'] = 0.0
+
+
+  state_changes['mols_air'] = state.mols_air + (
+      state_changes['acs_mass_flow'] /
+      constants.DRY_AIR_MOLAR_MASS) * stride.total_seconds()
+  # mols_air must be positive.
+  state_changes['mols_air'] = max(state_changes['mols_air'], 0.0)
+
+  ## Step 6: Calculate energy usage and collection, and move coulombs onto
+  # and off of the battery as apppropriate. 🔋
+
+  is_day = solar_elevation > solar.MIN_SOLAR_EL_DEG
+  # print("D (ble): ", is_day) 
+  state_changes['solar_charging'] = (
+      solar.solar_power(solar_elevation, state.pressure)
+      if is_day else units.Power(watts=0.0))
+  # TODO(scandido): Introduce a variable power load for cold upwelling IR?
+  state_changes['power_load'] = (
+      state.daytime_power_load if is_day else state.nighttime_power_load)
+  state_changes['power_load'] += state_changes['acs_power']
+
+  # We use a simplified model of a battery that is kept at a constant
+  # temperature and acts like an ideal energy reservoir.
+  state_changes['battery_charge'] = state.battery_charge + (
+      state_changes['solar_charging'] - state_changes['power_load']) * stride
+  # print("(ble) Q: ", state_changes['solar_charging'], state_changes['power_load'])
+  state_changes['battery_charge'] = _clip(state_changes['battery_charge'],
+                                          units.Energy(watt_hours=0.0),
+                                          state.battery_capacity)
+
+  if state_changes['battery_charge'].watt_hours <= 0.0:
+    state_changes['status'] = BalloonStatus.OUT_OF_POWER
+
+  # This must be updated in the inner loop, since the safety layer and
+  # solar calculations rely on the current time.
+  state_changes['date_time'] = state.date_time + stride
+  state_changes['time_elapsed'] = state.time_elapsed + stride
+
+  return state_changes

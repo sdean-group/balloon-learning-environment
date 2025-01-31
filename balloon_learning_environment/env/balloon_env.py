@@ -171,7 +171,13 @@ class BalloonEnv(gym.Env):
     Returns:
       An (observation, reward, terminal, info) tuple.
     """
-    command = control.AltitudeControlCommand(action)
+    if isinstance(action, int):
+      # print('found discrete action')
+      command = control.AltitudeControlCommand(action)
+    else:
+      # print('found continuous action')
+      command = action
+
     observation = self.arena.step(command)
     # assert isinstance(observation, np.ndarray)
 
