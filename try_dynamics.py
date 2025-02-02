@@ -2,21 +2,26 @@
 from balloon_learning_environment.env.balloon import balloon
 from balloon_learning_environment.env.balloon import control
 from balloon_learning_environment.agents.mpc2_agent import JaxBalloon, JaxBalloonState
+from balloon_learning_environment.agents.mpc5_agent import GBalloon
 # from balloon_learning_environment.env.balloon_arena import balloon_arena
 from balloon_learning_environment.env.generative_wind_field import generative_wind_field_factory
 from balloon_learning_environment.agents.mpc_agent import *
 from balloon_learning_environment.env import features
+from balloon_learning_environment.env.wind_field import WindVector
 from balloon_learning_environment.env.balloon import stable_init
 from balloon_learning_environment.env.balloon import standard_atmosphere
 
+
 from balloon_learning_environment.utils import units
 from balloon_learning_environment.utils import sampling
+
 from atmosnav.utils import alt2p as alt2p_atm
 from atmosnav.utils import p2alt
 from atmosnav import *
 import jax
 import time
 import math
+import matplotlib.pyplot as plt
 
 import jax.numpy as jnp
 import datetime as dt
@@ -46,7 +51,9 @@ def initialize_balloon(key=jax.random.PRNGKey(seed=0)):
     latlng = sampling.sample_location(keys[2])
 
     pressure = sampling.sample_pressure(keys[3], atmosphere)
+    print('stuck here')
     upwelling_infrared = sampling.sample_upwelling_infrared(keys[4])
+    print('done')
     b_state = balloon.BalloonState(
             center_latlng=latlng,
             x=x,
@@ -168,6 +175,79 @@ def test_simulate_step():
     compare_prints(ble_balloon.state, jax_balloon.state)
 
 # test_initialization()
-test_simulate_one_step()
-test_simulate_step()
+# test_simulate_one_step()
+# test_simulate_step()
 
+def run_simulation():
+    balloon_state = initialize_balloon()
+
+    bballoon = balloon.Balloon(initialize_balloon())
+    gballoon = JaxBalloon(JaxBalloonState.from_ble_state(balloon_state))
+    # gballoon = GBalloon(
+    #     x=balloon_state.x.meters, 
+    #     y=balloon_state.y.meters,
+    #     pressure=balloon_state.pressure, 
+    #     volume=balloon_state.envelope_volume, 
+    #     mass=balloon_state.payload_mass + balloon_state.envelope_mass 
+    #     # TODO: i think technically there are more mass values but I'm also guessing they are much smaller 
+    # )
+
+    print("run_simulation(): balloon initialized")
+
+    time_steps = 500
+    stride = 10  # seconds
+    pressures = []
+    altitudes = []
+
+    pressures1=[]
+    altitudes1=[]
+
+
+
+
+    for t in range(time_steps):
+        # print(t)
+        action = jnp.sin(t / 30.0)  # Example control action
+        # action = (t//24%3) - 1
+
+        # action = (t < 30) * 1.0
+
+        wind_vector = jnp.array([1.0, 0.0])  # Constant wind to the east
+        
+        # gballoon = gballoon.step(action, wind_vector, atmosphere.to_jax_atmopshere(), stride)
+        gballoon = gballoon.simulate_step_continuous(wind_vector, atmosphere.to_jax_atmopshere(), action, stride, stride)
+
+        bballoon.simulate_step(
+            WindVector(units.Velocity(mps=1.0), units.Velocity(mps=0.0)), 
+            atmosphere, 
+            action, 
+            dt.timedelta(seconds=stride), 
+            dt.timedelta(seconds=stride))
+
+        pressures.append(gballoon.state.pressure)
+        altitudes.append(atmosphere.at_pressure(gballoon.state.pressure).height.km)
+
+        pressures1.append(bballoon.state.pressure)
+        altitudes1.append(atmosphere.at_pressure(pressures1[-1]).height.km)
+
+    # Plot results
+    plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1)
+    # plt.plot(range(time_steps), pressures)
+    plt.plot(range(time_steps), altitudes1)
+    # plt.title("Balloon Pressure Over Time")
+    plt.title("balloon.Balloon")
+    plt.xlabel("Time (s)")
+    # plt.ylabel("Pressure (Pa)")
+    plt.ylabel("Altitude (km)")
+
+    plt.subplot(1, 2, 2)
+    plt.plot(range(time_steps), altitudes)
+    plt.title("JaxBalloon")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Altitude (km)")
+
+    plt.tight_layout()
+    plt.show()
+
+run_simulation()
