@@ -195,7 +195,8 @@ def run_simulation():
     print("run_simulation(): balloon initialized")
 
     time_steps = 500
-    stride = 10  # seconds
+    time_delta = 3*60
+    stride = 60  # seconds
     pressures = []
     altitudes = []
 
@@ -203,29 +204,29 @@ def run_simulation():
     altitudes1=[]
 
 
-
+    jax_atmopshere = atmosphere.to_jax_atmopshere()
 
     for t in range(time_steps):
         # print(t)
-        action = jnp.sin(t / 30.0)  # Example control action
-        # action = (t//24%3) - 1
+        # action = jnp.sin(t / 30.0)  # Example control action
+        # # action = (t//24%3) - 1
 
-        # action = (t < 30) * 1.0
+        action = (t < 30) * 1.0
 
         wind_vector = jnp.array([1.0, 0.0])  # Constant wind to the east
         
         # gballoon = gballoon.step(action, wind_vector, atmosphere.to_jax_atmopshere(), stride)
-        gballoon = gballoon.simulate_step_continuous(wind_vector, atmosphere.to_jax_atmopshere(), action, stride, stride)
+        gballoon = gballoon.simulate_step_continuous(wind_vector, jax_atmopshere, action, time_delta, stride)
 
         bballoon.simulate_step(
             WindVector(units.Velocity(mps=1.0), units.Velocity(mps=0.0)), 
             atmosphere, 
             action, 
-            dt.timedelta(seconds=stride), 
+            dt.timedelta(seconds=time_delta), 
             dt.timedelta(seconds=stride))
 
         pressures.append(gballoon.state.pressure)
-        altitudes.append(atmosphere.at_pressure(gballoon.state.pressure).height.km)
+        altitudes.append(jax_atmopshere.at_pressure(pressures[-1]).height.km)
 
         pressures1.append(bballoon.state.pressure)
         altitudes1.append(atmosphere.at_pressure(pressures1[-1]).height.km)
@@ -233,7 +234,7 @@ def run_simulation():
     # Plot results
     plt.figure(figsize=(12, 5))
     plt.subplot(1, 2, 1)
-    # plt.plot(range(time_steps), pressures)
+    # plt.plot(range(time_steps), pressures1)
     plt.plot(range(time_steps), altitudes1)
     # plt.title("Balloon Pressure Over Time")
     plt.title("balloon.Balloon")
@@ -242,6 +243,7 @@ def run_simulation():
     plt.ylabel("Altitude (km)")
 
     plt.subplot(1, 2, 2)
+    # plt.plot(range(time_steps), pressures)
     plt.plot(range(time_steps), altitudes)
     plt.title("JaxBalloon")
     plt.xlabel("Time (s)")
