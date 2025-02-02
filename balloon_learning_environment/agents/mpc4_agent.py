@@ -55,6 +55,7 @@ def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosph
     print("GD", gradient_steps, f"∆cost = {after_cost} - {start_cost} = {after_cost - start_cost}")
     return plan
 
+np.random.seed(seed=42)
 def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, atmosphere: JaxAtmosphere, plan_steps, time_delta, stride):
     time_to_top = 0
     max_km_to_explore = 19.1
@@ -127,6 +128,7 @@ class MPC4Agent(agent.Agent):
         #    initial_plan = self.plan
 
         # TODO: is it necessary to pass in forecast when just trying to get to a height?
+
         initial_plans =get_initial_plans(balloon, 50, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
         batched_cost = []
         for i in range(len(initial_plans)):
@@ -134,7 +136,6 @@ class MPC4Agent(agent.Agent):
 
         # print(np.min(batched_cost))
         initial_plan = initial_plans[np.argmin(batched_cost)]
-        
 
         self.plan = grad_descent_optimizer(
             initial_plan, 
