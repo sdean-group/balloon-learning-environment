@@ -216,7 +216,7 @@ class JaxBalloon:
     def __init__(self, state: JaxBalloonState):
         self.state = state
 
-    # @jax.jit
+    @jax.jit
     def simulate_step(
             self, 
             wind_vector: '[u, v], meters / second', 
@@ -238,6 +238,7 @@ class JaxBalloon:
         final_balloon = jax.lax.fori_loop(0, outer_stride//inner_stride, update_step, init_val=self)
         return final_balloon
     
+    @jax.jit
     def simulate_step_continuous(
             self, 
             wind_vector: '[u, v], meters / second', 
@@ -251,7 +252,7 @@ class JaxBalloon:
         # check safety layers
 
         # acs_control = jnp.clip(acs_control, -1, 1)
-        acs_control = 2*jax.nn.sigmoid(acs_control) - 1
+        # acs_control = 2*jax.nn.sigmoid(acs_control) - 1
 
         # TODO: could make the seconds take in integers
         outer_stride = time_delta#.astype(int)
@@ -260,7 +261,8 @@ class JaxBalloon:
             return balloon._simulate_step_continuous_internal(wind_vector, atmosphere, acs_control, stride)
 
         # outer_stride//inner_stride
-        final_balloon = jax.lax.fori_loop(0, 3, update_step, init_val=self)
+        # final_balloon = jax.lax.fori_loop(0, 1, update_step, init_val=self)
+        final_balloon = update_step(0, self)
         return final_balloon
 
 
@@ -356,8 +358,9 @@ class JaxBalloon:
         # altitude control system (ACS) ⚙️. Adjust power usage accordingly.
 
         def on_action_up(state: JaxBalloonState, acs_control: float):
+            jax.debug.print("jax balloon action up")
             state_acs_power = 0.0 # watts
-            valve_area = jnp.pi * state.acs_valve_hole_diameter_meters**2 / 4.0
+            valve_area = acs_control * jnp.pi * state.acs_valve_hole_diameter_meters**2 / 4.0
             # Coefficient of drag on the air passing through the ACS from the
             # aperture. A measured quantity.
             default_valve_hole_cd = 0.62  # [.]
@@ -369,9 +372,10 @@ class JaxBalloon:
                 -1 * default_valve_hole_cd * valve_area * jnp.sqrt(
                     2.0 * state.superpressure * gas_density))
             
-            return acs_control * state_acs_power, state_acs_mass_flow
+            return state_acs_power, state_acs_mass_flow
 
         def on_action_down(state: JaxBalloonState, acs_control: float):
+            jax.debug.print("jax balloon action down")
             superpressure = jnp.max(jnp.array([state.superpressure, 0.0]))
             pressure_ratio = (state.pressure + superpressure) / state.pressure
             
@@ -385,6 +389,7 @@ class JaxBalloon:
             return state_acs_power, state_acs_mass_flow
 
         def on_action_stay():
+            jax.debug.print("jax balloon action stay")
             state_acs_power = 0.0
             state_acs_mass_flow = 0.0
             
@@ -394,7 +399,7 @@ class JaxBalloon:
             acs_control < 0,
             lambda op: on_action_down(*op),
             lambda op: jax.lax.cond(
-                acs_control > 0,
+                op[1] > 0,
                 lambda op1: on_action_up(*op1),
                 lambda _: on_action_stay(),
                 operand=op,
