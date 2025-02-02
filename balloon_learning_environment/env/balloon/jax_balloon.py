@@ -7,6 +7,7 @@ from balloon_learning_environment.utils import jax_utils
 import jax.numpy as jnp
 from balloon_learning_environment.utils import units
 from balloon_learning_environment.env.balloon.balloon import BalloonState
+from functools import partial
 
 class JaxBalloonStatus:
   OK = 0
@@ -230,15 +231,16 @@ class JaxBalloon:
         # check safety layers
 
         # TODO: could make the seconds take in integers
-        outer_stride = time_delta#.astype(int)
-        inner_stride = stride#.astype(int)
+        outer_stride = time_delta
+        inner_stride = stride
         def update_step(i, balloon):
             return balloon._simulate_step_internal(wind_vector, atmosphere, action, stride)
 
         final_balloon = jax.lax.fori_loop(0, outer_stride//inner_stride, update_step, init_val=self)
         return final_balloon
     
-    @jax.jit
+    @partial(jax.jit, static_argnums=(-2, -1)) 
+    # @jax.jit
     def simulate_step_continuous(
             self, 
             wind_vector: '[u, v], meters / second', 
@@ -254,15 +256,13 @@ class JaxBalloon:
         # acs_control = jnp.clip(acs_control, -1, 1)
         # acs_control = 2*jax.nn.sigmoid(acs_control) - 1
 
-        # TODO: could make the seconds take in integers
-        outer_stride = time_delta#.astype(int)
-        inner_stride = stride#.astype(int)
-        def update_step(i, balloon):
-            return balloon._simulate_step_continuous_internal(wind_vector, atmosphere, acs_control, stride)
+        def update_step(balloon, i):
+            return balloon._simulate_step_continuous_internal(wind_vector, atmosphere, acs_control, stride), None
 
-        # outer_stride//inner_stride
-        # final_balloon = jax.lax.fori_loop(0, 1, update_step, init_val=self)
-        final_balloon = update_step(0, self)
+        num_steps = time_delta // stride
+        # jax.debug.print("num_steps={x}, time_delta={y}, stride={z}", x=num_steps, y=time_delta, z=stride)
+        final_balloon, _ = jax.lax.scan(update_step, init=self, xs=jnp.arange(num_steps))
+
         return final_balloon
 
 
