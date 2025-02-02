@@ -10,7 +10,11 @@ import jax.numpy as jnp
 import scipy
 from functools import partial
 
-# TODO: use sigmoid to normalize actions or add constraint/cost to prevent from being outside -1 to 1
+def inverse_sigmoid(x):
+    return jnp.log((x+1)/(1-x))
+
+def sigmoid(x):
+    return 2 / (1 + jnp.exp(-x)) - 1
 
 def jax_balloon_cost(balloon: JaxBalloon):
     return (balloon.state.x/1000)**2 + (balloon.state.y/1000)**2
@@ -19,6 +23,8 @@ def jax_balloon_cost(balloon: JaxBalloon):
 def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: 'int, seconds', stride: 'int, seconds'):
     cost = 0.0
     discount_factor = 0.99 # 1.00
+
+    plan = sigmoid(plan)
     
     def update_step(i, balloon_and_cost: tuple[JaxBalloon, float]):
         balloon, cost = balloon_and_cost
@@ -40,9 +46,9 @@ def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosph
     for gradient_steps in range(100):
         dplan = dcost_dplan(plan, balloon, forecast, atmosphere, time_delta, stride)
         if  np.isnan(dplan).any() or abs(jnp.linalg.norm(dplan)) < 1e-7:
-            print('Exiting early, |∂plan| =',abs(jnp.linalg.norm(dplan)))
+            # print('Exiting early, |∂plan| =',abs(jnp.linalg.norm(dplan)))
             break
-        print("A", gradient_steps, abs(jnp.linalg.norm(dplan)))
+        # print("A", gradient_steps, abs(jnp.linalg.norm(dplan)))
         plan -= dplan / jnp.linalg.norm(dplan)
 
     after_cost = jax_plan_cost(plan, balloon, forecast, atmosphere, time_delta, stride)
@@ -73,22 +79,20 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
     for i in range(num_plans//2):
         up_plan = np.zeros((plan_steps, ))
         up_time = np.random.randint(0, max(1, time_to_top))
-        up_plan[:up_time]=1.0
+        up_plan[:up_time] = 0.99
         up_plan[up_time:] += np.random.uniform(-0.3, 0.3, plan_steps - up_time)
 
         plans.append(up_plan)
 
         down_plan = np.zeros((plan_steps, ))
         down_time = np.random.randint(0, max(1, time_to_bottom))
-        down_plan[:down_time]=-1.0
+        down_plan[:down_time] = -0.99
         down_plan[down_time:] += np.random.uniform(-0.3, 0.3, plan_steps - down_time)
 
         plans.append(down_plan)
     
-    return np.array(plans)
+    return inverse_sigmoid(np.array(plans))
 
-# def numerical_grad_descent_optimizer():
-#     pass
 
 class MPC4Agent(agent.Agent):
         
@@ -128,7 +132,7 @@ class MPC4Agent(agent.Agent):
         for i in range(len(initial_plans)):
             batched_cost.append(jax_plan_cost(jnp.array(initial_plans[i]), balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
 
-        print(np.min(batched_cost))
+        # print(np.min(batched_cost))
         initial_plan = initial_plans[np.argmin(batched_cost)]
         
 
@@ -140,10 +144,12 @@ class MPC4Agent(agent.Agent):
             self.atmosphere,
             self.time_delta, 
             self.stride)
+        self.plan = sigmoid(self.plan)
 
         self.i = 0
         action = self.plan[self.i]
         self.i+=1
+        # print('action', action)
         return action
 
     def step(self, reward: float, observation: np.ndarray) -> int:
@@ -163,6 +169,7 @@ class MPC4Agent(agent.Agent):
             else:
                 action = self.plan[self.i]
                 self.i += 1
+                # print('action', action)
                 return action
 
  
