@@ -120,7 +120,7 @@ def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosph
         if  np.isnan(dplan).any() or abs(jnp.linalg.norm(dplan)) < 1e-7:
             print('Exiting early, |∂plan| =',abs(jnp.linalg.norm(dplan)))
             break
-        print(gradient_steps, abs(jnp.linalg.norm(dplan)))
+        print("A", gradient_steps, abs(jnp.linalg.norm(dplan)))
         plan -= dplan / jnp.linalg.norm(dplan)
 
     after_cost = jax_plan_cost(plan, balloon, forecast, atmosphere, time_delta, stride)

@@ -358,7 +358,7 @@ class JaxBalloon:
         # altitude control system (ACS) ⚙️. Adjust power usage accordingly.
 
         def on_action_up(state: JaxBalloonState, acs_control: float):
-            jax.debug.print("jax balloon action up")
+            # jax.debug.print("jax balloon action up")
             state_acs_power = 0.0 # watts
             valve_area = acs_control * jnp.pi * state.acs_valve_hole_diameter_meters**2 / 4.0
             # Coefficient of drag on the air passing through the ACS from the
@@ -375,7 +375,7 @@ class JaxBalloon:
             return state_acs_power, state_acs_mass_flow
 
         def on_action_down(state: JaxBalloonState, acs_control: float):
-            jax.debug.print("jax balloon action down")
+            # jax.debug.print("jax balloon action down")
             superpressure = jnp.max(jnp.array([state.superpressure, 0.0]))
             pressure_ratio = (state.pressure + superpressure) / state.pressure
             
@@ -389,7 +389,7 @@ class JaxBalloon:
             return state_acs_power, state_acs_mass_flow
 
         def on_action_stay():
-            jax.debug.print("jax balloon action stay")
+            # jax.debug.print("jax balloon action stay")
             state_acs_power = 0.0
             state_acs_mass_flow = 0.0
             
