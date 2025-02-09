@@ -1,8 +1,8 @@
 """Compare wind measurements and dynamics model"""
 from balloon_learning_environment.env.balloon import balloon
 from balloon_learning_environment.env.balloon import control
+from balloon_learning_environment.agents.mpc_agent import DeterministicAltitudeModel, make_weather_balloon
 from balloon_learning_environment.agents.mpc2_agent import JaxBalloon, JaxBalloonState
-from balloon_learning_environment.agents.mpc5_agent import GBalloon
 # from balloon_learning_environment.env.balloon_arena import balloon_arena
 from balloon_learning_environment.env.generative_wind_field import generative_wind_field_factory
 from balloon_learning_environment.agents.mpc_agent import *
@@ -51,9 +51,7 @@ def initialize_balloon(key=jax.random.PRNGKey(seed=0)):
     latlng = sampling.sample_location(keys[2])
 
     pressure = sampling.sample_pressure(keys[3], atmosphere)
-    print('stuck here')
     upwelling_infrared = sampling.sample_upwelling_infrared(keys[4])
-    print('done')
     b_state = balloon.BalloonState(
             center_latlng=latlng,
             x=x,
@@ -252,4 +250,50 @@ def run_simulation():
     plt.tight_layout()
     plt.show()
 
-run_simulation()
+# run_simulation()
+
+def test_mpc_initializations():
+    # Balloon configuration
+    balloon_state = initialize_balloon()
+    x = balloon_state.x.km
+    y = balloon_state.y.km
+    pressure = balloon_state.pressure
+    t = balloon_state.time_elapsed.seconds
+    jax_atmosphere = atmosphere.to_jax_atmopshere()
+    waypoint_time_step = 3*60
+    integration_time_step = 10
+
+    balloon = make_weather_balloon(x, y, pressure, t, jax_atmosphere, waypoint_time_step, integration_time_step)
+
+    @jax.jit
+    def step(balloon, time, plan, wind):
+        return balloon.step(time, plan, wind)
+
+    # Plan configuration
+    plan_steps = 240
+
+    plan = balloon.state[2] + np.cumsum(np.random.uniform(-0.5, 0.5, plan_steps)).reshape(-1, 1)
+
+    # Plotting
+    time = [t]
+    actions = [plan[0]]
+    altitude = [balloon.state[2]]
+
+    N = (waypoint_time_step * (len(plan)-1)) // integration_time_step
+    for _ in range(N):
+        balloon,info = step(balloon, time[-1], plan, jnp.array([ 0.0, 0.0 ]))
+        actions.append(info['control_input'])
+        time.append(time[-1] + integration_time_step)
+        altitude.append(balloon.state[2])
+
+    plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(time, actions)
+
+    plt.subplot(1, 2, 2)
+    plt.plot(time, altitude)
+
+    plt.tight_layout()
+    plt.show()
+
+test_mpc_initializations()
