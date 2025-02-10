@@ -1,8 +1,10 @@
 """Compare wind measurements and dynamics model"""
 from balloon_learning_environment.env.balloon import balloon
 from balloon_learning_environment.env.balloon import control
-from balloon_learning_environment.agents.mpc_agent import DeterministicAltitudeModel, make_weather_balloon
+from balloon_learning_environment.agents import opd
+from balloon_learning_environment.agents.mpc_agent import DeterministicAltitudeModel, make_weather_balloon, make_plan
 from balloon_learning_environment.agents.mpc2_agent import JaxBalloon, JaxBalloonState
+from balloon_learning_environment.agents.mpc4_agent import jax_plan_cost, grad_descent_optimizer
 # from balloon_learning_environment.env.balloon_arena import balloon_arena
 from balloon_learning_environment.env.generative_wind_field import generative_wind_field_factory
 from balloon_learning_environment.agents.mpc_agent import *
@@ -260,8 +262,10 @@ def test_mpc_initializations():
     pressure = balloon_state.pressure
     t = balloon_state.time_elapsed.seconds
     jax_atmosphere = atmosphere.to_jax_atmopshere()
+    jax_forecast = wind_forecast.to_jax_wind_field()
     waypoint_time_step = 3*60
     integration_time_step = 10
+    
 
     balloon = make_weather_balloon(x, y, pressure, t, jax_atmosphere, waypoint_time_step, integration_time_step)
 
@@ -272,7 +276,8 @@ def test_mpc_initializations():
     # Plan configuration
     plan_steps = 240
 
-    plan = balloon.state[2] + np.cumsum(np.random.uniform(-0.5, 0.5, plan_steps)).reshape(-1, 1)
+    # plan = balloon.state[2] + np.cumsum(np.random.uniform(-0.5, 0.5, plan_steps)).reshape(-1, 1)
+    plan, _ = make_plan(t, 100, plan_steps, balloon, jax_forecast, jax_atmosphere, waypoint_time_step, integration_time_step)
 
     # Plotting
     time = [t]
@@ -296,4 +301,28 @@ def test_mpc_initializations():
     plt.tight_layout()
     plt.show()
 
-test_mpc_initializations()
+# test_mpc_initializations()
+
+def test_opd():
+    balloon_state = initialize_balloon()
+    start = opd.ExplorerState(
+        balloon_state.x.meters,
+        balloon_state.y.meters,
+        balloon_state.pressure,
+        balloon_state.time_elapsed.seconds)
+    
+    jax_wind_forecast = wind_forecast.to_jax_wind_field()
+
+    best_node, best_node_early = opd.run_opd_search(start, jax_wind_forecast, [0, 1, 2], opd.ExplorerOptions(budget=2_000, planning_horizon=12, delta_time=15*60))
+    print(best_node)
+    print(best_node_early)
+
+    plan = opd.get_plan_from_opd_node(best_node, 3*60, 15*60)
+
+    jax_balloon = JaxBalloon(JaxBalloonState.from_ble_state(balloon_state))
+    
+    print(jax_plan_cost(plan, jax_balloon, jax_wind_forecast, atmosphere.to_jax_atmopshere(), 3*60, 60))
+    
+
+
+test_opd()
