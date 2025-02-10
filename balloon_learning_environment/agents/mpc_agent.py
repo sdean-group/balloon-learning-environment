@@ -66,17 +66,31 @@ def cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, int
 gradient_at = jax.jit(jax.grad(cost_at, argnums=2), static_argnums=(5, 6))
 
 np.random.seed(42)
+
+def generate_fourier_plan(num_steps, num_frequencies):
+    T = num_steps
+    t = np.arange(T)
+    
+    a_k = np.random.uniform(-1.0, 1.0, num_frequencies)
+    b_k = np.random.uniform(-1.0, 1.0, num_frequencies)
+    
+    plan = np.zeros(T)
+    for k in range(num_frequencies):
+        plan += a_k[k] * np.sin(2*np.pi*k*t/T) + b_k[k] * np.cos(2*np.pi*k*t/T)
+    
+    plan = 14 + 6*plan/np.max(np.abs(plan))
+    return plan.reshape(-1, 1)
+    
 def make_plan(start_time, num_plans, num_steps, balloon, wind, atmosphere, waypoint_time_step, integration_time_step):
         
     best_plan = -1
     best_cost = +np.inf
-    for i in range(num_plans):
-        plan = 13 + 9*np.random.rand(1)
-        plan = np.full((num_steps, 1), plan)
+    
+    for _ in range(num_plans):
+        # plan = 13 + 9*np.random.rand(1)
+        # plan = np.full((num_steps, 1), plan)
 
-        # start_height = 13 + 9*np.random.rand()
-        # plan = start_height + np.cumsum(np.random.uniform(-1.0, 1.0, num_steps)).reshape(-1, 1)
-
+        plan = generate_fourier_plan(num_steps, 10)
         cost = cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, integration_time_step)
         if cost < best_cost:
             best_plan = plan
