@@ -325,6 +325,7 @@ class Balloon:
         f'The outer simulation stride (time_delta={time_delta}) must be a '
         f'multiple of the inner simulation stride (stride={stride})')
 
+    # print('running', outer_stride // inner_stride, 'times')
     for _ in range(outer_stride // inner_stride):
 
       # Choose which dynamics to use based on action type
@@ -759,7 +760,8 @@ def _simulate_step_continuous_internal(
       constants.UNIVERSAL_GAS_CONSTANT * state.internal_temperature)
 
   if action > 0:  # Venting (positive action)
-      venting_factor = action  # Scale venting based on action magnitude
+      # state_acs_power = 0.0
+      venting_factor = action
       state_changes['acs_power'] = units.Power(watts=0.0)
       state_changes['acs_mass_flow'] = (
           -venting_factor * default_valve_hole_cd * valve_area *

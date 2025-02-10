@@ -23,7 +23,7 @@ from balloon_learning_environment.env.balloon import standard_atmosphere
 from balloon_learning_environment.utils import units
 import jax
 from jax import numpy as jnp
-from tensorflow_probability.substrates import jax as tfp
+import tensorflow_probability as tfp 
 
 import s2sphere as s2
 
@@ -148,5 +148,5 @@ def sample_upwelling_infrared(key: jnp.ndarray,
     else:
       raise ValueError(f'Invalid distribution type: {distribution_type}')
     if sample >= MIN_ALLOWABLE_UPWELLING_IR:
-      return sample.item()
+      return sample.numpy().item()
     key, _ = jax.random.split(key, num=2)
