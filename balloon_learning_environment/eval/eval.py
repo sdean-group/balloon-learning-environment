@@ -75,7 +75,8 @@ _RENDERERS = {
 _FEATURE_CONSTRUCTORS = {
   'perciatelli': features.PerciatelliFeatureConstructor,
   'mpc': features.MPCFeatures,
-  'mpc2': features.MPC2Features
+  'mpc2': features.MPC2Features,
+  'mpc-seeker': features.MPCSeekerFeatures
 }
 
 def write_result(result: Sequence[eval_lib.EvaluationResult]) -> None:
