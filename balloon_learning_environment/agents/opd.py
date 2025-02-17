@@ -117,12 +117,12 @@ def run_opd_search(start: ExplorerState, wind_field: JaxWindField, action_space:
     return best_node, best_node_early
 
 def get_plan_from_opd_node(node: Node, search_delta_time: int, plan_delta_time: int):
-    plan_size = (node.depth * search_delta_time) // plan_delta_time
+    plan_size = node.depth * (search_delta_time // plan_delta_time)
     plan = np.zeros(plan_size)
     i = 0
     for action in node.action_sequence:
         for j in range(search_delta_time//plan_delta_time):
-            plan_size[i] = action
+            plan[i] = action
             i+=1
     
     return plan

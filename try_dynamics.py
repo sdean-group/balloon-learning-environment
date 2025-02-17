@@ -4,7 +4,7 @@ from balloon_learning_environment.env.balloon import control
 from balloon_learning_environment.agents import opd
 from balloon_learning_environment.agents.mpc_agent import DeterministicAltitudeModel, make_weather_balloon, make_plan
 from balloon_learning_environment.agents.mpc2_agent import JaxBalloon, JaxBalloonState
-from balloon_learning_environment.agents.mpc4_agent import jax_plan_cost, grad_descent_optimizer
+from balloon_learning_environment.agents.mpc4_agent import jax_plan_cost, grad_descent_optimizer, get_initial_plans
 # from balloon_learning_environment.env.balloon_arena import balloon_arena
 from balloon_learning_environment.env.generative_wind_field import generative_wind_field_factory
 from balloon_learning_environment.agents.mpc_agent import *
@@ -304,25 +304,34 @@ def test_mpc_initializations():
 # test_mpc_initializations()
 
 def test_opd():
+    jax_atmopshere = atmosphere.to_jax_atmopshere()
+    jax_wind_forecast = wind_forecast.to_jax_wind_field()
+
     balloon_state = initialize_balloon()
     start = opd.ExplorerState(
         balloon_state.x.meters,
         balloon_state.y.meters,
         balloon_state.pressure,
         balloon_state.time_elapsed.seconds)
-    
-    jax_wind_forecast = wind_forecast.to_jax_wind_field()
 
-    best_node, best_node_early = opd.run_opd_search(start, jax_wind_forecast, [0, 1, 2], opd.ExplorerOptions(budget=2_000, planning_horizon=12, delta_time=15*60))
+
+    search_delta_time = 60*60
+    plan_delta_time = 3*60
+    best_node, best_node_early = opd.run_opd_search(start, jax_wind_forecast, [0, 1, 2], opd.ExplorerOptions(budget=25_000, planning_horizon=240, delta_time=search_delta_time))
     print(best_node)
     print(best_node_early)
 
-    plan = opd.get_plan_from_opd_node(best_node, 3*60, 15*60)
-
     jax_balloon = JaxBalloon(JaxBalloonState.from_ble_state(balloon_state))
-    
-    print(jax_plan_cost(plan, jax_balloon, jax_wind_forecast, atmosphere.to_jax_atmopshere(), 3*60, 60))
-    
 
+    plan = opd.get_plan_from_opd_node(best_node, search_delta_time=search_delta_time, plan_delta_time=plan_delta_time)
+    print(len(plan))
+    print(jax_plan_cost(plan, jax_balloon, jax_wind_forecast, jax_atmopshere, plan_delta_time, 60))
+
+
+    initial_plans =get_initial_plans(jax_balloon, 50, jax_wind_forecast, jax_atmopshere, len(plan), plan_delta_time, 60)
+    batched_cost = []
+    for i in range(len(initial_plans)):
+        batched_cost.append(jax_plan_cost(jnp.array(initial_plans[i]), jax_balloon, jax_wind_forecast, jax_atmopshere, plan_delta_time, 60))
+    print(np.min(batched_cost))
 
 test_opd()
