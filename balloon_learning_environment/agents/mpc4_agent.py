@@ -40,6 +40,28 @@ def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmospher
     final_balloon, final_cost = jax.lax.fori_loop(0, len(plan), update_step, init_val=(balloon, cost))
     return final_cost
 
+def jax_plan_reward(balloon: JaxBalloon):
+    dist_km = (balloon.state.x/1000)**2  + (balloon.state.y/1000)**2
+    shift = 50
+    return (-(dist_km * 4) + shift**2)/(shift**2)
+
+@partial(jax.jit, static_argnums=(-2, -1))
+def jax_plan_reward_with_V_function(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, v_function, time_delta: 'int, seconds', stride: 'int, seconds'):
+    reward = 0.0
+    discount_factor = 0.99
+
+    plan = sigmoid(plan)
+    def update_step(i, balloon_and_reward: tuple[JaxBalloon, float]):
+        balloon, reward = balloon_and_reward
+        wind_vector = wind_field.get_forecast(balloon.state.x/1000, balloon.state.y/1000, balloon.state.pressure, balloon.state.time_elapsed)
+        next_balloon = balloon.simulate_step_continuous(wind_vector, atmosphere, plan[i], time_delta, stride)
+        reward += (discount_factor**i) * jax_plan_reward(next_balloon)
+        return next_balloon, reward
+
+    final_balloon, final_cost = jax.lax.fori_loop(0, len(plan), update_step, init_val=(balloon, reward))
+    return final_cost
+
+
 def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, time_delta, stride):
     start_cost = jax_plan_cost(initial_plan, balloon, forecast, atmosphere, time_delta, stride)
     plan = initial_plan
