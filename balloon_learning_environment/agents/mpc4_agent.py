@@ -124,7 +124,7 @@ class MPC4Agent(agent.Agent):
         self.forecast = None # WindField
         self.atmosphere = None # Atmosphere
 
-        # self.get_dplan = jax.jit(jax.grad(jax_plan_cost, argnums=0), static_argnums=(-1,-2))
+        # self.get_dplan = jax.jit(jax.grad(jax_plan_cost, argnums=0), static_argnums=(-2, -1))
 
         self.get_dplan = jax.grad(jax_plan_cost, argnums=0)
 
@@ -197,8 +197,7 @@ class MPC4Agent(agent.Agent):
             action = self.plan[self.i]
             return action
         else:
-            # N = 23
-            N = len(self.plan)
+            N = min(len(self.plan), 23)
             if self.i>0 and self.i%N==0:
                 # self.plan = jnp.vstack((self.plan[N:], jax.random.uniform(self.key, (N, ))))
                 return self.begin_episode(observation)
