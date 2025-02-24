@@ -125,7 +125,7 @@ class MPCSeekerAgent(agent.Agent):
         return action
 
     def step(self, reward, observation):
-        # self._observe(observation)
+        self._observe(observation)
         # return self.begin_episode(observation)
 
         # 0 - NEVER replan
