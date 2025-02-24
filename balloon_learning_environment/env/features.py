@@ -95,6 +95,26 @@ class FeatureConstructor(abc.ABC):
   def observation_space(self) -> gym.Space:
     """Gets the observation space specification for the feature vector."""
 
+class MPCSeekerFeatures:
+  def __init__(self, forecast: wind_field.WindField,
+               atmosphere: standard_atmosphere.Atmosphere):
+    self.observation = None
+
+  def observe(self, observation: simulator_data.SimulatorObservation):
+    self.observation = observation
+
+  def get_features(self) -> np.ndarray:
+    return self.observation
+
+  @property
+  def observation_space(self) -> gym.Space:
+    lo = np.full((2, ), -np.inf)
+    hi = np.full((2, ), +np.inf)
+
+    # TODO: this is broken
+
+    return gym.spaces.Box(low=lo, high=hi)
+
 class MPC2Features:
   def __init__(self, forecast: wind_field.WindField,
                atmosphere: standard_atmosphere.Atmosphere):
