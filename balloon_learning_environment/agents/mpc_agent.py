@@ -85,12 +85,12 @@ def make_plan(start_time, num_plans, num_steps, balloon, wind, atmosphere, waypo
         
     best_plan = -1
     best_cost = +np.inf
-    
-    for _ in range(num_plans):
-        # plan = 13 + 9*np.random.rand(1)
-        # plan = np.full((num_steps, 1), plan)
 
-        plan = generate_fourier_plan(num_steps, 10)
+    for _ in range(num_plans):
+        plan = 13 + 9*np.random.rand(1)
+        plan = np.full((num_steps, 1), plan)
+
+        # plan = generate_fourier_plan(num_steps, 10)
         cost = cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, integration_time_step)
         if cost < best_cost:
             best_plan = plan
@@ -125,12 +125,14 @@ class MPCAgent(agent.Agent):
         self.forecast = None
         self.atmosphere = None
         
-        self.plan_size = 50
+        self.plan_size = 240
+        self.num_initializations=50
         self.plan = None
         self.i = 0
         self.waypoint_time_step = 3*60 # seconds, Equivalent to time_delta in BalloonArena
 
         self.integration_time_step = 10 # seconds, Equivalent to stride
+
 
     def begin_episode(self, observation: np.ndarray) -> int:
         # atmosnav optimizer:
@@ -141,7 +143,7 @@ class MPCAgent(agent.Agent):
 
         # # t, x, y, pressure = observation
         balloon = make_weather_balloon(x, y, pressure, t, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
-        self.plan, best_cost = make_plan(t, 100, 240, balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
+        self.plan, best_cost = make_plan(t, self.num_initializations, self.plan_size, balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
         for i in range(100):
             dplan = gradient_at(t, balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
             if abs(jnp.linalg.norm(dplan)) < 1e-7:
