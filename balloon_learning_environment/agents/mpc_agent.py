@@ -47,21 +47,31 @@ def cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, int
     N = (waypoint_time_step * (len(plan)-1)) // integration_time_step
     factor = 1.0
     cost = 0.0
+    plan_change_cost = 0.0
+    
     def inner_run(i, time_balloon_cost):
-        time, balloon, cost, factor = time_balloon_cost
+        time, balloon, cost, factor, plan_change_cost = time_balloon_cost
         x, y, altitude, _ = balloon.state
-        # km, km, km
-
-        cost += factor * (balloon.state[0]**2 + balloon.state[1] **2)
+        
+        cost += factor * (balloon.state[0]**2 + balloon.state[1]**2)
         factor *= 0.99
-
-        pressure = atmosphere.at_height(height_meters=altitude*1000.0).pressure
-        wind_vector = integration_time_step * wind.get_forecast(x, y, pressure, time)/1000.0 # wind vector starts as meters per second, convert to change in kilometers
+        
+        # plan_change_penalty = 50 * jax.lax.cond(i > 0, 
+        #                                    lambda: (plan[i,0] - plan[i-1,0]) ** 2, 
+        #                                    lambda: 0.0)
+        # plan_change_cost += plan_change_penalty
+        
+        pressure = atmosphere.at_height(height_meters=altitude * 1000.0).pressure
+        wind_vector = integration_time_step * wind.get_forecast(x, y, pressure, time) / 1000.0
         next_balloon, _ = balloon.step(time, plan, wind_vector)
-        return time + integration_time_step, next_balloon, cost, factor
-
-    t, final_balloon, cost, factor = jax.lax.fori_loop(0, N, inner_run, init_val=(start_time, balloon, cost, factor))
-    return cost
+        
+        return time + integration_time_step, next_balloon, cost, factor, plan_change_cost
+    
+    t, final_balloon, cost, factor, plan_change_cost = jax.lax.fori_loop(0, N, inner_run, 
+                                                                         init_val=(start_time, balloon, cost, factor, plan_change_cost))
+    
+    total_cost = cost + plan_change_cost
+    return total_cost
 
 gradient_at = jax.jit(jax.grad(cost_at, argnums=2), static_argnums=(5, 6))
 
@@ -157,7 +167,7 @@ class MPCAgent(agent.Agent):
     def step(self, reward, observation):
         REPLANNING = True
         if REPLANNING:
-            N = 0
+            N = 23
             if N==0 or (self.i > 0 and self.i%N == 0):
                 return self.begin_episode(observation)
             else:
@@ -169,7 +179,15 @@ class MPCAgent(agent.Agent):
             action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
             return action
 
- 
+    def write_diagnostics(self, diagnostics):
+        if 'mpc_agent' not in diagnostics:
+            diagnostics['mpc_agent'] = {'z':[]}
+        
+        height = self.plan[self.i].item()
+
+        diagnostics['mpc_agent']['z'].append(height)
+
+
     def end_episode(self, reward: float, terminal: bool = True) -> None:
         self.i = 0 
 

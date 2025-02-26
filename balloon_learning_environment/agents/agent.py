@@ -161,6 +161,9 @@ class Agent(abc.ABC):
     This is called everytime a new atmospheree is generated (e.g. reset)
     """
 
+  def write_diagnostics(self, diagnostics):
+    """ If an agent has diagnostic information after generating an action """
+    return None
 
 
 class RandomAgent(Agent):
