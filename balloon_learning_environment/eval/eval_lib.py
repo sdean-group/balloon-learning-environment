@@ -165,6 +165,9 @@ def eval_agent(agent: base_agent.Agent,
     diagnostic['simulator']['y'].append(state.y.meters)
     diagnostic['simulator']['z'].append(simulator_state.atmosphere.at_pressure(state.pressure).height.kilometers)
 
+  # def simulator_write_diagnostics_end(diagnostic, simulator_state: simulator_data.SimulatorState):
+  #   diagnostics.append({'seed': seed, 'twr': twr, 'reward': total_reward, 'steps': step_count, 'diagnostic': diagnostic})
+
   for seed_idx, seed in enumerate(eval_suite.seeds):
     total_reward = 0.0
     steps_within_radius = 0
@@ -219,6 +222,7 @@ def eval_agent(agent: base_agent.Agent,
 
     twr = steps_within_radius / step_count
     agent.end_episode(reward, is_done)
+    agent.write_diagnostics_end(diagnostic)
     diagnostics.append({'seed': seed, 'twr': twr, 'reward': total_reward, 'steps': step_count, 'diagnostic': diagnostic})
 
     eval_result = EvaluationResult(

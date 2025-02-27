@@ -17,9 +17,13 @@ prior_results = {
 
 # datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/MPCAgent-1740593147380.json"
 # datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/MPCAgent-1740595451265.json"
-datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/MPCAgent-1740595696619.json"
+# datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/MPCAgent-1740595696619.json"
 # datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/MPCAgent-1740604720348.json"
+# datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/MPCAgent-1740620569475.json"
+datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/MPCAgent-1740631590193.json"
 diagnostics = json.load(open(datapath, 'r'))
+
+# print(np.linalg.norm(np.array(diagnostics[0]['diagnostic']['mpc_agent']['z']) - np.array(diagnostics[0]['diagnostic']['mpc_agent']['altitude'])))
 
 # perciatelli_datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/Perciatelli44-1740594371922.json"
 # perciatelli_diagnostics = json.load(open(perciatelli_datapath, 'r'))
@@ -52,8 +56,44 @@ twrs = []
 
 for result in diagnostics:
     
-    mpc_agent_z = np.array(result['diagnostic']['mpc_agent']['z'])
+    mpc_agent_plan = np.array(result['diagnostic']['mpc_agent']['z'])
+    mpc_agent_z = np.array(result['diagnostic']['mpc_agent']['altitude'])
     simulation_z = np.array(result['diagnostic']['simulator']['z'])
+
+    print('plan<->mpc-rollout fidelity:', np.linalg.norm(mpc_agent_plan - mpc_agent_z))
+    print('plan<->sim-rollout fidelity:', np.linalg.norm(mpc_agent_plan - simulation_z))
+    print('mpc-rollout<->sim-rollout fidelity:', np.linalg.norm(simulation_z - mpc_agent_z))
+
+    mpc_agent_x = np.array(result['diagnostic']['mpc_agent']['x'])
+    simulation_x = np.array(result['diagnostic']['simulator']['x'])/1000.0
+    print('mpc-rollout x<->sim-rollout x fidelity:', np.linalg.norm(mpc_agent_x - simulation_x))
+
+
+    # plt.plot(range(result['steps']+1), mpc_agent_x, label='mpc x')
+    # plt.plot(range(result['steps']+1), simulation_x, label='simulation x')
+    # plt.legend()
+    # plt.title('mpc-rollout x<->sim-rollout x')
+    # plt.show()
+
+
+    mpc_agent_y = np.array(result['diagnostic']['mpc_agent']['y'])
+    simulation_y = np.array(result['diagnostic']['simulator']['y'])/1000.0
+    print('mpc-rollout x<->sim-rollout y fidelity:', np.linalg.norm(mpc_agent_y - simulation_y))
+
+
+    # plt.plot(range(result['steps']+1), mpc_agent_y, label='mpc x')
+    # plt.plot(range(result['steps']+1), simulation_y, label='simulation x')
+    # plt.legend()
+    # plt.title('mpc-rollout y<->sim-rollout y')
+    # plt.show()
+
+    fig = plt.figure(figsize=(10, 7))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.plot(mpc_agent_x, mpc_agent_y, mpc_agent_z, label='mpc rollout')
+    ax.plot(simulation_x, simulation_y, simulation_z, label='sim rollout')
+    ax.legend()
+    # ax.title('rollouts')
+    plt.show()
 
     fidelity = np.linalg.norm(mpc_agent_z - simulation_z)
     seed = result['seed']
@@ -67,8 +107,9 @@ for result in diagnostics:
     fidelities.append(fidelity)
     twrs.append(twr_score)
 
-    plt.plot(range(result['steps']+1), mpc_agent_z, label='mpc')
-    plt.plot(range(result['steps']+1), simulation_z, label='simulator')
+    plt.plot(range(result['steps']+1), mpc_agent_plan, label='mpc plan')
+    plt.plot(range(result['steps']+1), mpc_agent_z, label='mpc dynamics rollout')
+    plt.plot(range(result['steps']+1), simulation_z, label='simulator rollout')
     plt.legend()
     plt.title(f'seed={seed}, twr_score={twr_score}, fidelity={fidelity}')
     plt.show()

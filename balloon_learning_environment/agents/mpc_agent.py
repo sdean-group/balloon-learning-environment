@@ -127,6 +127,31 @@ def convert_plan_to_actions(plan, observation, i, atmosphere):
 
 # Idea: use observations to improve forecast (like perciatelli feature uses WindGP)    
 
+@partial(jax.jit, static_argnames=("waypoint_time_step", "integration_time_step"))
+def _deadreckon_jax(balloon, time, plan, forecast, atmosphere, waypoint_time_step, integration_time_step):
+    # Number of integration steps per waypoint.
+    N = waypoint_time_step // integration_time_step
+
+    def body_fun(i, state):
+        t, balloon = state
+        # Extract state components (assumed to be [x, y, altitude, ...])
+        x, y, altitude, _ = balloon.state
+
+        # Compute the atmospheric pressure at the current altitude.
+        pressure = atmosphere.at_height(height_meters=altitude * 1000.0).pressure
+
+        # Compute the wind vector scaled by the integration time step and convert from m/s to km.
+        wind_vector = integration_time_step * forecast.get_forecast(x, y, pressure, t) / 1000.0
+
+        # Advance the balloon state using its step method.
+        new_balloon, _ = balloon.step(t, plan, wind_vector)
+        new_t = t + integration_time_step
+
+        return (new_t, new_balloon)
+
+    final_time, final_balloon = jax.lax.fori_loop(0, N, body_fun, (time, balloon))
+    return final_balloon, final_time
+
 class MPCAgent(agent.Agent):
     """An agent that takes uniform random actions."""
 
@@ -144,24 +169,54 @@ class MPCAgent(agent.Agent):
         self.integration_time_step = 10 # seconds, Equivalent to stride
 
 
+        self.balloon = None
+        self.time = None
+        self.steps_within_radius = 0
+
+    def _deadreckon(self):
+        # Call the jitted dead reckoning function.
+        final_balloon, final_time = _deadreckon_jax(
+            self.balloon,
+            self.time,
+            self.plan,
+            self.forecast,
+            self.atmosphere,
+            self.waypoint_time_step,
+            self.integration_time_step
+        )
+        
+        # Update the instance's balloon and time with the results.
+        self.balloon = final_balloon
+        self.time = final_time
+
+        # Check if the balloon is within a radius of 50.0 (using x^2+y^2)
+        x, y, _, _ = self.balloon.state
+        if (x**2 + y**2) <= (50.0)**2:
+            self.steps_within_radius += 1
+
+
+
     def begin_episode(self, observation: np.ndarray) -> int:
         # atmosnav optimizer:
         x = observation[1].km
         y = observation[2].km
         pressure = observation[3]
-        t = observation[0].seconds
-
+        self.time = observation[0].seconds
+        
         # # t, x, y, pressure = observation
-        balloon = make_weather_balloon(x, y, pressure, t, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
-        self.plan, best_cost = make_plan(t, self.num_initializations, self.plan_size, balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
+        self.balloon = make_weather_balloon(x, y, pressure, self.time, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
+        self.plan, best_cost = make_plan(self.time, self.num_initializations, self.plan_size, self.balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
         for i in range(100):
-            dplan = gradient_at(t, balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
+            dplan = gradient_at(self.time, self.balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
             if abs(jnp.linalg.norm(dplan)) < 1e-7:
                 break
             self.plan -= dplan / (np.linalg.norm(dplan) + 0.0001)
-        
+
         self.i = 0
         action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
+
+        self._deadreckon()
+
         return action
 
     def step(self, reward, observation):
@@ -173,19 +228,35 @@ class MPCAgent(agent.Agent):
             else:
                 self.i += 1
                 action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
+                self._deadreckon()
                 return action
         else:
             self.i += 1
             action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
+            self._deadreckon()
             return action
 
     def write_diagnostics(self, diagnostics):
         if 'mpc_agent' not in diagnostics:
-            diagnostics['mpc_agent'] = {'z':[]}
+            diagnostics['mpc_agent'] = {'x': [], 'y': [], 'altitude': [], 'z':[]}
         
         height = self.plan[self.i].item()
 
+        diagnostics['mpc_agent']['x'].append(self.balloon.state[0].item())
+        diagnostics['mpc_agent']['y'].append(self.balloon.state[1].item())
+        diagnostics['mpc_agent']['altitude'].append(self.balloon.state[2].item())
         diagnostics['mpc_agent']['z'].append(height)
+
+    def write_diagnostics_end(self, diagnostics):
+        if 'mpc_agent' not in diagnostics:
+            diagnostics['mpc_agent'] = {'x': [], 'y': [], 'altitude': [], 'z':[]}
+        
+        X = diagnostics['mpc_agent']['x']
+        if len(X) != 0:
+            diagnostics['mpc_agent']['twr'] = self.steps_within_radius/len(X)
+        else:
+            diagnostics['mpc_agent']['twr'] = 0 
+        
 
 
     def end_episode(self, reward: float, terminal: bool = True) -> None:

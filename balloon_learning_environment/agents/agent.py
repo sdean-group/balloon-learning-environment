@@ -165,6 +165,10 @@ class Agent(abc.ABC):
     """ If an agent has diagnostic information after generating an action """
     return None
 
+  def write_diagnostics_end(self, diagnostics):
+    """ """
+    return None
+
 
 class RandomAgent(Agent):
   """An agent that takes uniform random actions."""
