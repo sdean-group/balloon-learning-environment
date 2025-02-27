@@ -102,7 +102,7 @@ class MPC4Agent(agent.Agent):
         self.forecast = None # WindField
         self.atmosphere = None # Atmosphere
 
-        # self.get_dplan = jax.jit(jax.grad(jax_plan_cost, argnums=0), static_argnums=(-1,-2))
+        self.get_dplan = jax.jit(jax.grad(jax_plan_cost, argnums=0), static_argnums=(-2, -1))
 
         self.get_dplan = jax.grad(jax_plan_cost, argnums=0)
 
@@ -110,12 +110,33 @@ class MPC4Agent(agent.Agent):
         self.time_delta = 3*60
         self.stride = 60
 
-        self.plan_steps = (self.plan_time // self.time_delta) # // 3
+        self.plan_steps = (self.plan_time // self.time_delta) // 3
 
         self.plan = None # jnp.full((self.plan_steps, ), fill_value=1.0/3.0)
         self.i = 0
 
         self.key = jax.random.key(seed=0)
+
+        self.balloon = None
+        self.time = None
+        self.steps_within_radius = 0
+
+    def _deadreckon(self):
+        wind_vector = self.forecast.get_forecast(
+            self.balloon.state.x/1000, 
+            self.balloon.state.y/1000, 
+            self.balloon.state.pressure, 
+            self.balloon.state.time_elapsed)
+
+        self.balloon = self.balloon.simulate_step_continuous(
+            wind_vector, 
+            self.atmosphere, 
+            self.plan[self.i], 
+            self.time_delta, 
+            self.stride)
+        
+        if (self.balloon.state.x/1000)**2 + (self.balloon.state.y/1000)**2 <= (50.0)**2:
+            self.steps_within_radius += 1
 
     def begin_episode(self, observation: np.ndarray) -> int:
         # TODO: actually convert observation into an ndarray (it is a JaxBalloonState, see features.py)
@@ -146,6 +167,11 @@ class MPC4Agent(agent.Agent):
             self.time_delta, 
             self.stride)
         self.plan = sigmoid(self.plan)
+            print(time.time() - b4, 's to get optimized plan')
+
+        b4 = time.time()
+        self._deadreckon()
+        print(time.time() - b4, 's to deadreckon ballooon')
 
         self.i = 0
         action = self.plan[self.i]
@@ -156,7 +182,7 @@ class MPC4Agent(agent.Agent):
     def step(self, reward: float, observation: np.ndarray) -> int:
         REPLANNING = True
         observation: JaxBalloonState = observation
-        balloon = JaxBalloon(observation)
+        self._deadreckon()
         # print(observation.battery_charge/observation.battery_capacity)
         if not REPLANNING:
             self.i += 1
@@ -172,10 +198,31 @@ class MPC4Agent(agent.Agent):
                 self.i += 1
                 # print('action', action)
                 return action
+    
+    def write_diagnostics(self, diagnostics):
+        if 'mpc4_agent' not in diagnostics:
+            diagnostics['mpc4_agent'] = {'x': [], 'y': [], 'z':[], 'plan':[]}
+        
+        height = self.atmosphere.at_pressure(self.balloon.state.pressure).height.km
 
+        diagnostics['mpc4_agent']['x'].append(self.balloon.state.x.item()/1000)
+        diagnostics['mpc4_agent']['y'].append(self.balloon.state.y.item()/1000)
+        diagnostics['mpc4_agent']['z'].append(height.item())
+        diagnostics['mpc4_agent']['plan'].append(self.plan[self.i].item())
+
+    def write_diagnostics_end(self, diagnostics):
+        if 'mpc4_agent' not in diagnostics:
+            diagnostics['mpc4_agent'] = {'x': [], 'y': [], 'z':[], 'plan':[]}
+        
+        X = diagnostics['mpc4_agent']['x']
+        if len(X) != 0:
+            diagnostics['mpc4_agent']['twr'] = self.steps_within_radius/len(X)
+        else:
+            diagnostics['mpc4_agent']['twr'] = 0 
  
     def end_episode(self, reward: float, terminal: bool = True) -> None:
-        self.i
+        self.i = 0
+        self.steps_within_radius = 0
 
     def update_forecast(self, forecast: agent.WindField): 
         self.forecast = forecast.to_jax_wind_field()

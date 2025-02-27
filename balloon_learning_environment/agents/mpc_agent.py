@@ -238,18 +238,18 @@ class MPCAgent(agent.Agent):
 
     def write_diagnostics(self, diagnostics):
         if 'mpc_agent' not in diagnostics:
-            diagnostics['mpc_agent'] = {'x': [], 'y': [], 'altitude': [], 'z':[]}
+            diagnostics['mpc_agent'] = {'x': [], 'y': [], 'z': [], 'plan':[]}
         
         height = self.plan[self.i].item()
 
         diagnostics['mpc_agent']['x'].append(self.balloon.state[0].item())
         diagnostics['mpc_agent']['y'].append(self.balloon.state[1].item())
-        diagnostics['mpc_agent']['altitude'].append(self.balloon.state[2].item())
-        diagnostics['mpc_agent']['z'].append(height)
+        diagnostics['mpc_agent']['z'].append(self.balloon.state[2].item())
+        diagnostics['mpc_agent']['plan'].append(height)
 
     def write_diagnostics_end(self, diagnostics):
         if 'mpc_agent' not in diagnostics:
-            diagnostics['mpc_agent'] = {'x': [], 'y': [], 'altitude': [], 'z':[]}
+            diagnostics['mpc_agent'] = {'x': [], 'y': [], 'z': [], 'plan':[]}
         
         X = diagnostics['mpc_agent']['x']
         if len(X) != 0:
@@ -261,6 +261,7 @@ class MPCAgent(agent.Agent):
 
     def end_episode(self, reward: float, terminal: bool = True) -> None:
         self.i = 0 
+        self.steps_within_radius = 0
 
     def update_forecast(self, forecast: agent.WindField): 
         # self.forecast = SimpleJaxWindField()

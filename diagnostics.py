@@ -20,7 +20,8 @@ prior_results = {
 # datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/MPCAgent-1740595696619.json"
 # datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/MPCAgent-1740604720348.json"
 # datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/MPCAgent-1740620569475.json"
-datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/MPCAgent-1740631590193.json"
+# datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/diagnostics/mpcagent-new-eval.json"
+datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/diagnostics/MPC4Agent-1740697015807.json"
 diagnostics = json.load(open(datapath, 'r'))
 
 # print(np.linalg.norm(np.array(diagnostics[0]['diagnostic']['mpc_agent']['z']) - np.array(diagnostics[0]['diagnostic']['mpc_agent']['altitude'])))
@@ -54,18 +55,18 @@ twrs = []
 
 #     print(f"seed={seed}, reward_score={reward_score:.5}, twr_score={twr_score:.3}, fidelity={fidelity}")
 
-for result in diagnostics:
+for seed, result in diagnostics.items():
     
-    mpc_agent_plan = np.array(result['diagnostic']['mpc_agent']['z'])
-    mpc_agent_z = np.array(result['diagnostic']['mpc_agent']['altitude'])
-    simulation_z = np.array(result['diagnostic']['simulator']['z'])
+    mpc_agent_plan = np.array(result['rollout']['mpc4_agent']['plan'])
+    mpc_agent_z = np.array(result['rollout']['mpc4_agent']['z'])
+    simulation_z = np.array(result['rollout']['simulator']['z'])
 
     print('plan<->mpc-rollout fidelity:', np.linalg.norm(mpc_agent_plan - mpc_agent_z))
     print('plan<->sim-rollout fidelity:', np.linalg.norm(mpc_agent_plan - simulation_z))
     print('mpc-rollout<->sim-rollout fidelity:', np.linalg.norm(simulation_z - mpc_agent_z))
 
-    mpc_agent_x = np.array(result['diagnostic']['mpc_agent']['x'])
-    simulation_x = np.array(result['diagnostic']['simulator']['x'])/1000.0
+    mpc_agent_x = np.array(result['rollout']['mpc4_agent']['x'])
+    simulation_x = np.array(result['rollout']['simulator']['x'])
     print('mpc-rollout x<->sim-rollout x fidelity:', np.linalg.norm(mpc_agent_x - simulation_x))
 
 
@@ -76,8 +77,8 @@ for result in diagnostics:
     # plt.show()
 
 
-    mpc_agent_y = np.array(result['diagnostic']['mpc_agent']['y'])
-    simulation_y = np.array(result['diagnostic']['simulator']['y'])/1000.0
+    mpc_agent_y = np.array(result['rollout']['mpc4_agent']['y'])
+    simulation_y = np.array(result['rollout']['simulator']['y'])
     print('mpc-rollout x<->sim-rollout y fidelity:', np.linalg.norm(mpc_agent_y - simulation_y))
 
 

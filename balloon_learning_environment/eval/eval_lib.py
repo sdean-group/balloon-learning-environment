@@ -154,16 +154,17 @@ def eval_agent(agent: base_agent.Agent,
   logging.info('Starting evaluation of %s on %s', agent.get_name(), eval_suite)
   agent.set_mode(base_agent.AgentMode.EVAL)
 
-  diagnostics = []
+  diagnostics = {}
   
   def simulator_write_diagnostics(diagnostic, simulator_state: simulator_data.SimulatorState):
     state = simulator_state.balloon_state
     if 'simulator' not in diagnostic:
-      diagnostic['simulator'] = {'x':[],'y': [], 'z': []}
+      diagnostic['simulator'] = {'x':[],'y': [], 'z': [], 'plan': []}
     
-    diagnostic['simulator']['x'].append(state.x.meters)
-    diagnostic['simulator']['y'].append(state.y.meters)
+    diagnostic['simulator']['x'].append(state.x.km)
+    diagnostic['simulator']['y'].append(state.y.km)
     diagnostic['simulator']['z'].append(simulator_state.atmosphere.at_pressure(state.pressure).height.kilometers)
+    diagnostic['simulator']['plan'].append(state.last_command)
 
   # def simulator_write_diagnostics_end(diagnostic, simulator_state: simulator_data.SimulatorState):
   #   diagnostics.append({'seed': seed, 'twr': twr, 'reward': total_reward, 'steps': step_count, 'diagnostic': diagnostic})
@@ -221,9 +222,10 @@ def eval_agent(agent: base_agent.Agent,
         pbar.update(1)
 
     twr = steps_within_radius / step_count
-    agent.end_episode(reward, is_done)
     agent.write_diagnostics_end(diagnostic)
-    diagnostics.append({'seed': seed, 'twr': twr, 'reward': total_reward, 'steps': step_count, 'diagnostic': diagnostic})
+    diagnostics[seed]={'seed': seed, 'twr': twr, 'reward': total_reward, 'steps': step_count, 'rollout': diagnostic}
+    
+    agent.end_episode(reward, is_done)
 
     eval_result = EvaluationResult(
         seed=seed,
@@ -245,7 +247,7 @@ def eval_agent(agent: base_agent.Agent,
     logging.info('Power safety layer violations: %d', env.arena.get_balloon_state().power_safety_layer._triggered)
     results.append(eval_result)
 
-  datafile = f'{type(agent).__name__}-{int(dt.datetime.now().timestamp()*1000)}.json'
+  datafile = f'diagnostics/{type(agent).__name__}-{int(dt.datetime.now().timestamp()*1000)}.json'
   with open(datafile, 'w', encoding='utf-8') as f:
     json.dump(diagnostics, f, ensure_ascii=False, indent=4)
 
