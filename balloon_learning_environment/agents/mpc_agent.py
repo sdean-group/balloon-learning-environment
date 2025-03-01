@@ -172,6 +172,7 @@ class MPCAgent(agent.Agent):
         self.balloon = None
         self.time = None
         self.steps_within_radius = 0
+        self.j = 0
 
     def _deadreckon(self):
         # Call the jitted dead reckoning function.
@@ -197,14 +198,28 @@ class MPCAgent(agent.Agent):
 
 
     def begin_episode(self, observation: np.ndarray) -> int:
-        # atmosnav optimizer:
         x = observation[1].km
         y = observation[2].km
         pressure = observation[3]
         self.time = observation[0].seconds
+
         
         # # t, x, y, pressure = observation
-        self.balloon = make_weather_balloon(x, y, pressure, self.time, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
+        self.balloon = make_weather_balloon(
+            # x if self.balloon is None or self.j%(960//2) == 0 else self.balloon.state[0],
+            # y if self.balloon is None or self.j%(960//2) == 0 else self.balloon.state[1], 
+            x,
+            y,
+            pressure, 
+            self.time, 
+            self.atmosphere, 
+            self.waypoint_time_step, 
+            self.integration_time_step)
+        
+        self.j+=1 
+        # path_noise = np.random.uniform(-1, 1, size=(self.plan_size, 1))
+        # self.plan = np.full((self.plan_size, 1), fill_value=self.atmosphere.at_pressure(pressure).height.km.item())
+        
         self.plan, best_cost = make_plan(self.time, self.num_initializations, self.plan_size, self.balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
         for i in range(100):
             dplan = gradient_at(self.time, self.balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
@@ -216,7 +231,6 @@ class MPCAgent(agent.Agent):
         action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
 
         self._deadreckon()
-
         return action
 
     def step(self, reward, observation):
@@ -240,12 +254,12 @@ class MPCAgent(agent.Agent):
         if 'mpc_agent' not in diagnostics:
             diagnostics['mpc_agent'] = {'x': [], 'y': [], 'z': [], 'plan':[]}
         
-        height = self.plan[self.i].item()
+        plan_i = self.plan[min(self.i, len(self.plan) -1)].item()
 
         diagnostics['mpc_agent']['x'].append(self.balloon.state[0].item())
         diagnostics['mpc_agent']['y'].append(self.balloon.state[1].item())
         diagnostics['mpc_agent']['z'].append(self.balloon.state[2].item())
-        diagnostics['mpc_agent']['plan'].append(height)
+        diagnostics['mpc_agent']['plan'].append(plan_i)
 
     def write_diagnostics_end(self, diagnostics):
         if 'mpc_agent' not in diagnostics:
@@ -262,6 +276,8 @@ class MPCAgent(agent.Agent):
     def end_episode(self, reward: float, terminal: bool = True) -> None:
         self.i = 0 
         self.steps_within_radius = 0
+        self.balloon = None
+        self.j = 0
 
     def update_forecast(self, forecast: agent.WindField): 
         # self.forecast = SimpleJaxWindField()
