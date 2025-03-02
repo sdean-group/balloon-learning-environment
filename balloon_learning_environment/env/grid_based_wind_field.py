@@ -43,6 +43,7 @@ class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
         self.field_shape.time_grid_points())      # Times.
     
   #@profile
+  @jax.jit
   def get_forecast(self, x: float, y: float, pressure: float,
                    elapsed_time: float) -> jnp.ndarray:
     """
@@ -51,7 +52,7 @@ class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
     elapsed_time is seconds
     """
     point = self._prepare_get_forecast_inputs(x, y, pressure, elapsed_time)
-    interp = jax.scipy.interpolate.RegularGridInterpolator(self._grid, self.field, fill_value=True)
+    interp = jax.scipy.interpolate.RegularGridInterpolator(self._grid, self.field)
     uv = interp(point)
     return uv[0] # uv[0][0] is lat mps for wind, uv[0][1] is lon mps
 
