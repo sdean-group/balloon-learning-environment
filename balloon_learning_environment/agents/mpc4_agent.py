@@ -1,6 +1,6 @@
 import jax.scipy.optimize
 import scipy.optimize
-from balloon_learning_environment.agents import agent
+from balloon_learning_environment.agents import agent, opd
 from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
 from balloon_learning_environment.env.wind_field import JaxWindField
 from balloon_learning_environment.env.balloon.standard_atmosphere import JaxAtmosphere
@@ -39,6 +39,28 @@ def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmospher
 
     final_balloon, final_cost = jax.lax.fori_loop(0, len(plan), update_step, init_val=(balloon, cost))
     return final_cost
+
+def jax_plan_reward(balloon: JaxBalloon):
+    dist_km = (balloon.state.x/1000)**2  + (balloon.state.y/1000)**2
+    shift = 50
+    return (-(dist_km * 4) + shift**2)/(shift**2)
+
+@partial(jax.jit, static_argnums=(-2, -1))
+def jax_plan_reward_with_V_function(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, v_function, time_delta: 'int, seconds', stride: 'int, seconds'):
+    reward = 0.0
+    discount_factor = 0.99
+
+    plan = sigmoid(plan)
+    def update_step(i, balloon_and_reward: tuple[JaxBalloon, float]):
+        balloon, reward = balloon_and_reward
+        wind_vector = wind_field.get_forecast(balloon.state.x/1000, balloon.state.y/1000, balloon.state.pressure, balloon.state.time_elapsed)
+        next_balloon = balloon.simulate_step_continuous(wind_vector, atmosphere, plan[i], time_delta, stride)
+        reward += (discount_factor**i) * jax_plan_reward(next_balloon)
+        return next_balloon, reward
+
+    final_balloon, final_cost = jax.lax.fori_loop(0, len(plan), update_step, init_val=(balloon, reward))
+    return final_cost
+
 
 def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, time_delta, stride):
     start_cost = jax_plan_cost(initial_plan, balloon, forecast, atmosphere, time_delta, stride)
@@ -104,7 +126,6 @@ class MPC4Agent(agent.Agent):
 
         self.get_dplan = jax.jit(jax.grad(jax_plan_cost, argnums=0), static_argnums=(-2, -1))
 
-        self.get_dplan = jax.grad(jax_plan_cost, argnums=0)
 
         self.plan_time = 2*24*60*60
         self.time_delta = 3*60
@@ -150,13 +171,25 @@ class MPC4Agent(agent.Agent):
 
         # TODO: is it necessary to pass in forecast when just trying to get to a height?
 
-        initial_plans =get_initial_plans(balloon, 50, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
-        batched_cost = []
-        for i in range(len(initial_plans)):
-            batched_cost.append(jax_plan_cost(jnp.array(initial_plans[i]), balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
+        initialization_type = 'random'
 
-        # print(np.min(batched_cost))
-        initial_plan = initial_plans[np.argmin(batched_cost)]
+        if initialization_type == 'opd':
+            start = opd.ExplorerState(
+                balloon.state.x,
+                balloon.state.y,
+                balloon.state.pressure,
+                balloon.state.time_elapsed)
+
+            search_delta_time = 60*60
+            best_node, best_node_early = opd.run_opd_search(start, self.forecast, [0, 1, 2], opd.ExplorerOptions(budget=25_000, planning_horizon=240, delta_time=search_delta_time))
+            initial_plan =  opd.get_plan_from_opd_node(best_node, search_delta_time=search_delta_time, plan_delta_time=self.time_delta)
+
+        elif initialization_type == 'random':
+            initial_plans = get_initial_plans(balloon, 500, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
+            batched_cost = []
+            for i in range(len(initial_plans)):
+                batched_cost.append(jax_plan_cost(jnp.array(initial_plans[i]), balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
+            initial_plan = initial_plans[np.argmin(batched_cost)]
 
         self.plan = grad_descent_optimizer(
             initial_plan, 
@@ -189,7 +222,7 @@ class MPC4Agent(agent.Agent):
             action = self.plan[self.i]
             return action
         else:
-            N = 23
+            N = min(len(self.plan), 23)
             if self.i>0 and self.i%N==0:
                 # self.plan = jnp.vstack((self.plan[N:], jax.random.uniform(self.key, (N, ))))
                 return self.begin_episode(observation)
