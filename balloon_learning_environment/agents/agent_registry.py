@@ -60,6 +60,7 @@ REGISTRY = {
     'mpc2': (mpc2_agent.MPC2Agent, None),
     'mpc3': (mpc3_agent.MPC3Agent, None),
     'mpc4': (mpc4_agent.MPC4Agent, None),
+    'mpc4_follower': (mpc4_agent.MPC4FollowerAgent, None),
     'copyagent': (copyagent.Follower, None),
   }
 
