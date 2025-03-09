@@ -159,12 +159,16 @@ def eval_agent(agent: base_agent.Agent,
   def simulator_write_diagnostics(diagnostic, simulator_state: simulator_data.SimulatorState):
     state = simulator_state.balloon_state
     if 'simulator' not in diagnostic:
-      diagnostic['simulator'] = {'x':[],'y': [], 'z': [], 'plan': []}
+      diagnostic['simulator'] = {'x':[],'y': [], 'z': [], 'wind':[], 'plan': []}
     
     diagnostic['simulator']['x'].append(state.x.km)
     diagnostic['simulator']['y'].append(state.y.km)
     diagnostic['simulator']['z'].append(simulator_state.atmosphere.at_pressure(state.pressure).height.kilometers)
     diagnostic['simulator']['plan'].append(state.last_command)
+
+    # TODO: change to get_ground_truth
+    wind_vector = simulator_state.wind_field.get_ground_truth(state.x, state.y, state.pressure, state.time_elapsed)
+    diagnostic['simulator']['wind'].append([wind_vector.u.meters_per_second, wind_vector.v.meters_per_second])
 
   # def simulator_write_diagnostics_end(diagnostic, simulator_state: simulator_data.SimulatorState):
   #   diagnostics.append({'seed': seed, 'twr': twr, 'reward': total_reward, 'steps': step_count, 'diagnostic': diagnostic})

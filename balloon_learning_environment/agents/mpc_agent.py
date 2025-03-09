@@ -173,6 +173,7 @@ class MPCAgent(agent.Agent):
         self.balloon = None
         self.time = None
         self.steps_within_radius = 0
+        self.j = 0
 
     def _deadreckon(self):
         # Call the jitted dead reckoning function.
@@ -198,14 +199,29 @@ class MPCAgent(agent.Agent):
 
 
     def begin_episode(self, observation: np.ndarray) -> int:
-        # atmosnav optimizer:
         x = observation[1].km
         y = observation[2].km
         pressure = observation[3]
-        self.time = observation[0].seconds
+        self.time = int(observation[0].total_seconds()) 
+        # print('time given', self.time/3600)
+
         
         # # t, x, y, pressure = observation
-        self.balloon = make_weather_balloon(x, y, pressure, self.time, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
+        self.balloon = make_weather_balloon(
+            # x if self.balloon is None or self.j%(1000) == 0 else self.balloon.state[0],
+            # y if self.balloon is None or self.j%(1000) == 0 else self.balloon.state[1], 
+            x,
+            y,
+            pressure, 
+            self.time, 
+            self.atmosphere, 
+            self.waypoint_time_step, 
+            self.integration_time_step)
+        
+        self.j+=1 
+        # path_noise = np.random.uniform(-1, 1, size=(self.plan_size, 1))
+        # self.plan = np.full((self.plan_size, 1), fill_value=self.atmosphere.at_pressure(pressure).height.km.item())
+        
         self.plan, best_cost = make_plan(self.time, self.num_initializations, self.plan_size, self.balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
 
         for i in range(100):
@@ -218,7 +234,6 @@ class MPCAgent(agent.Agent):
         action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
 
         self._deadreckon()
-
         return action
 
     def step(self, reward, observation):
@@ -240,14 +255,24 @@ class MPCAgent(agent.Agent):
 
     def write_diagnostics(self, diagnostics):
         if 'mpc_agent' not in diagnostics:
-            diagnostics['mpc_agent'] = {'x': [], 'y': [], 'z': [], 'plan':[]}
+            diagnostics['mpc_agent'] = {'x': [], 'y': [], 'z': [], 'wind':[], 'plan':[]}
         
-        height = self.plan[self.i].item()
+        plan_i = self.plan[min(self.i, len(self.plan) -1)].item()
 
         diagnostics['mpc_agent']['x'].append(self.balloon.state[0].item())
         diagnostics['mpc_agent']['y'].append(self.balloon.state[1].item())
         diagnostics['mpc_agent']['z'].append(self.balloon.state[2].item())
-        diagnostics['mpc_agent']['plan'].append(height)
+        
+        wind_vector = self.forecast.get_forecast(
+            self.balloon.state[0], 
+            self.balloon.state[1], 
+            self.atmosphere.at_height(self.balloon.state[2]*1000).pressure, 
+            self.time)
+        diagnostics['mpc_agent']['wind'].append([wind_vector[0].item(), wind_vector[1].item()])
+
+        wind_vector = None
+
+        diagnostics['mpc_agent']['plan'].append(plan_i)
 
     def write_diagnostics_end(self, diagnostics):
         if 'mpc_agent' not in diagnostics:
@@ -264,6 +289,8 @@ class MPCAgent(agent.Agent):
     def end_episode(self, reward: float, terminal: bool = True) -> None:
         self.i = 0 
         self.steps_within_radius = 0
+        self.balloon = None
+        self.j = 0
 
     def update_forecast(self, forecast: agent.WindField): 
         # self.forecast = SimpleJaxWindField()
@@ -271,4 +298,100 @@ class MPCAgent(agent.Agent):
 
     def update_atmosphere(self, atmosphere: agent.standard_atmosphere.Atmosphere): 
         self.atmosphere = atmosphere.to_jax_atmopshere() 
+
+
+
+class Deadreckon(agent.Agent):
+    """An agent that takes uniform random actions."""
+
+    def __init__(self, num_actions: int, observation_shape: Sequence[int]):
+        super(Deadreckon, self).__init__(num_actions, observation_shape)
+        self.forecast = None
+        self.atmosphere = None
+        
+        self.plan_size = 240
+        self.num_initializations=50
+        self.plan = None
+        self.i = 0
+        self.waypoint_time_step = 3*60 # seconds, Equivalent to time_delta in BalloonArena
+
+        self.integration_time_step = 10 # seconds, Equivalent to stride
+
+
+        self.balloon = None
+        self.time = None
+        self.steps_within_radius = 0
+        self.j = 0
+
+    def _deadreckon(self):
+        for _ in range(self.waypoint_time_step//self.integration_time_step):
+            wind_vector = self.forecast.get_forecast(self.balloon[0], self.balloon[1], self.balloon[2], self.time)
+            self.balloon[0] += wind_vector.u * dt.timedelta(seconds=self.integration_time_step)
+            self.balloon[1] += wind_vector.v * dt.timedelta(seconds=self.integration_time_step)
+            # self.balloon[2] += 0.0
+            self.time += dt.timedelta(seconds=self.integration_time_step)
+        
+        x,y,_ = self.balloon
+        if (x.km**2 + y.km**2) <= (50.0)**2:
+            self.steps_within_radius += 1
+
+    def begin_episode(self, observation: np.ndarray) -> int:
+        x = observation[1]
+        y = observation[2]
+        pressure = observation[3]
+        self.time = observation[0]
+
+        
+        # # t, x, y, pressure = observation
+        self.balloon =[ x, y, pressure ]
+        
+        self.j+=1 
+        self.plan = np.full((self.plan_size, 1), fill_value=self.atmosphere.at_pressure(pressure).height.km)
+        
+        self.i = 0
+        action = 1 # stay
+
+        self._deadreckon()
+        return action
+
+    def step(self, reward, observation):
+        return self.begin_episode(observation)
+
+    def write_diagnostics(self, diagnostics):
+        if 'deadreckon' not in diagnostics:
+            diagnostics['deadreckon'] = {'x': [], 'y': [], 'z': [], 'wind':[], 'plan':[]}
+        
+        plan_i = self.plan[min(self.i, len(self.plan) -1), 0]
+
+        diagnostics['deadreckon']['x'].append(self.balloon[0].km)
+        diagnostics['deadreckon']['y'].append(self.balloon[1].km)
+        diagnostics['deadreckon']['z'].append(self.atmosphere.at_pressure(self.balloon[2]).height.km)
+
+        wind_vector= self.forecast.get_forecast(self.balloon[0], self.balloon[1], self.balloon[2], self.time)
+        diagnostics['deadreckon']['wind'].append([wind_vector.u.meters_per_second, wind_vector.v.meters_per_second])
+        
+        diagnostics['deadreckon']['plan'].append(plan_i)
+
+    def write_diagnostics_end(self, diagnostics):
+        if 'deadreckon' not in diagnostics:
+            diagnostics['deadreckon'] = {'x': [], 'y': [], 'z': [], 'plan':[]}
+        
+        X = diagnostics['deadreckon']['x']
+        if len(X) != 0:
+            diagnostics['deadreckon']['twr'] = self.steps_within_radius/len(X)
+        else:
+            diagnostics['deadreckon']['twr'] = 0 
+        
+    def end_episode(self, reward: float, terminal: bool = True) -> None:
+        self.i = 0 
+        self.steps_within_radius = 0
+        self.balloon = None
+        self.j = 0
+
+    def update_forecast(self, forecast: agent.WindField): 
+        # self.forecast = SimpleJaxWindField()
+        self.forecast = forecast
+
+    def update_atmosphere(self, atmosphere: agent.standard_atmosphere.Atmosphere): 
+        self.atmosphere = atmosphere 
 

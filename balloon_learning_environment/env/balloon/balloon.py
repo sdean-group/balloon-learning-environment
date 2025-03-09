@@ -332,15 +332,15 @@ class Balloon:
       if using_discrete:
 
         # NOTE: this version simply uses the discrete stuff,
-        # state_changes = _simulate_step_internal(
-        #     self.state, wind_vector, atmosphere, effective_action, stride)
+        state_changes = _simulate_step_internal(
+            self.state, wind_vector, atmosphere, effective_action, stride)
 
         # NOTE: this version casts discrete -> continuous
-        continuous_action = 0.0
-        if effective_action == control.AltitudeControlCommand.UP: continuous_action = 1.0
-        elif effective_action == control.AltitudeControlCommand.DOWN: continuous_action = -1.0
-        state_changes = _simulate_step_continuous_internal(
-          self.state, wind_vector, atmosphere, continuous_action, stride)
+        # continuous_action = 0.0
+        # if effective_action == control.AltitudeControlCommand.UP: continuous_action = 1.0
+        # elif effective_action == control.AltitudeControlCommand.DOWN: continuous_action = -1.0
+        # state_changes = _simulate_step_continuous_internal(
+        #   self.state, wind_vector, atmosphere, continuous_action, stride)
 
         # NOTE: they seem to be equivalent (after testing some seeds)
 

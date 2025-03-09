@@ -82,7 +82,7 @@ class JaxBalloonState:
         copy.power_load = state.power_load.watts
         copy.battery_charge = state.battery_charge.watt_hours
         copy.date_time = state.date_time.timestamp()
-        copy.time_elapsed = state.time_elapsed.seconds
+        copy.time_elapsed = state.time_elapsed.total_seconds()
         copy.payload_mass = state.payload_mass
         copy.envelope_mass = state.envelope_mass
         copy.envelope_max_superpressure = state.envelope_max_superpressure
@@ -396,10 +396,10 @@ class JaxBalloon:
             return state_acs_power, state_acs_mass_flow
         
         new_state.acs_power, new_state.acs_mass_flow = jax.lax.cond(
-            acs_control < 0,
+            acs_control < 0.0,
             lambda op: on_action_down(*op),
             lambda op: jax.lax.cond(
-                op[1] > 0,
+                op[1] > 0.0,
                 lambda op1: on_action_up(*op1),
                 lambda _: on_action_stay(),
                 operand=op,
