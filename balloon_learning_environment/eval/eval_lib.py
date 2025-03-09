@@ -23,12 +23,15 @@ from typing import Any, List, Sequence
 from absl import logging
 from balloon_learning_environment.agents import agent as base_agent
 from balloon_learning_environment.env import balloon_env
+from balloon_learning_environment.env import simulator_data
 from balloon_learning_environment.env.balloon import balloon
 from balloon_learning_environment.eval import suites
 from balloon_learning_environment.utils import units
 from jax import numpy as jnp
 import numpy as np
 from tqdm import tqdm
+
+import json
 
 
 class EvalResultEncoder(json.JSONEncoder):
@@ -151,18 +154,40 @@ def eval_agent(agent: base_agent.Agent,
   logging.info('Starting evaluation of %s on %s', agent.get_name(), eval_suite)
   agent.set_mode(base_agent.AgentMode.EVAL)
 
+  diagnostics = {}
+  
+  def simulator_write_diagnostics(diagnostic, simulator_state: simulator_data.SimulatorState):
+    state = simulator_state.balloon_state
+    if 'simulator' not in diagnostic:
+      diagnostic['simulator'] = {'x':[],'y': [], 'z': [], 'plan': []}
+    
+    diagnostic['simulator']['x'].append(state.x.km)
+    diagnostic['simulator']['y'].append(state.y.km)
+    diagnostic['simulator']['z'].append(simulator_state.atmosphere.at_pressure(state.pressure).height.kilometers)
+    diagnostic['simulator']['plan'].append(state.last_command)
+
+  # def simulator_write_diagnostics_end(diagnostic, simulator_state: simulator_data.SimulatorState):
+  #   diagnostics.append({'seed': seed, 'twr': twr, 'reward': total_reward, 'steps': step_count, 'diagnostic': diagnostic})
+
   for seed_idx, seed in enumerate(eval_suite.seeds):
     total_reward = 0.0
     steps_within_radius = 0
     flight_path = list()
+
+    diagnostic = {}
+
+    step_count = 0
 
     env.seed(seed)
     observation = env.reset()
     agent.update_forecast(env.get_wind_forecast())
     agent.update_atmosphere(env.get_atmosphere())
     action = agent.begin_episode(observation)
+    agent.write_diagnostics(diagnostic)
+    simulator_write_diagnostics(diagnostic, env.get_simulator_state())
 
-    step_count = 0
+    # Implement json debugging
+
     out_of_power = False
     envelope_burst = False
     zeropressure = False
@@ -171,6 +196,7 @@ def eval_agent(agent: base_agent.Agent,
         observation, reward, is_done, info = env.step(action)
 
         action = agent.step(reward, observation)
+        agent.write_diagnostics(diagnostic)
 
         total_reward += reward
         balloon_state = env.get_simulator_state().balloon_state
@@ -179,6 +205,8 @@ def eval_agent(agent: base_agent.Agent,
               SimpleBalloonState.from_balloon_state((balloon_state)))
         steps_within_radius += _balloon_is_within_radius(balloon_state,
                                                         env.radius)
+
+        simulator_write_diagnostics(diagnostic, env.get_simulator_state())
 
         if step_count % render_period == 0:
           env.render()  # No-op if renderer is None.
@@ -194,6 +222,9 @@ def eval_agent(agent: base_agent.Agent,
         pbar.update(1)
 
     twr = steps_within_radius / step_count
+    agent.write_diagnostics_end(diagnostic)
+    diagnostics[seed]={'seed': seed, 'twr': twr, 'reward': total_reward, 'steps': step_count, 'rollout': diagnostic}
+    
     agent.end_episode(reward, is_done)
 
     eval_result = EvaluationResult(
@@ -215,5 +246,10 @@ def eval_agent(agent: base_agent.Agent,
                  eval_result)
     logging.info('Power safety layer violations: %d', env.arena.get_balloon_state().power_safety_layer._triggered)
     results.append(eval_result)
+
+  datafile = f'diagnostics/{type(agent).__name__}-{int(dt.datetime.now().timestamp()*1000)}.json'
+  with open(datafile, 'w', encoding='utf-8') as f:
+    json.dump(diagnostics, f, ensure_ascii=False, indent=4)
+
 
   return results
