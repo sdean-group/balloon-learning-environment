@@ -15,26 +15,44 @@ class DeterministicAltitudeModel(Dynamics):
 
     def __init__(self, integration_time_step):
         self.dt = integration_time_step
-        self.vlim = 1.7
+        self.vlim = 1.0
+        # For descending, the maximum change is half that for ascending
+        self.vlim_down = 1.0 / 2.0
 
-    def control_input_to_delta_state(self, time: jnp.float32, state: Array, control_input: Array, wind_vector: Array):
+    def control_input_to_delta_state(self, time, state, control_input, wind_vector):
         h = self.update(state, control_input[0])
-        return jnp.array([ wind_vector[0], wind_vector[1], h - state[2], 0.0]), self
+        return jnp.array([wind_vector[0], wind_vector[1], h - state[2], 0.0]), self
 
     def update(self, state, waypoint):
-        return jax.lax.cond(jnp.abs(waypoint-state[2]) > self.vlim / 3600.0 * self.dt,
-                        lambda op: op[0][2] + self.vlim / 3600.0 * self.dt * jnp.sign(op[1]-op[0][2]),
-                        lambda op: op[1],
-                        operand = (state, waypoint))
+        # Calculate the difference between target and current altitude.
+        delta = waypoint - state[2]
+        # Choose the appropriate velocity limit based on whether we are ascending or descending.
+        # Ascending: use self.vlim; descending: use self.vlim_down.
+        current_vlim = jnp.where(delta >= 0, self.vlim, self.vlim_down)
+        # Compute the maximum allowed change for this time step (convert per hour rate to dt seconds).
+        limit = current_vlim / 3600.0 * self.dt
+        
+        # Update altitude using jax.lax.cond:
+        # If the absolute difference is larger than 'limit', move by 'limit' in the correct direction.
+        # Otherwise, set altitude directly to the waypoint.
+        return jax.lax.cond(jnp.abs(delta) > limit,
+                            lambda op: op[0][2] + limit * jnp.sign(op[1] - op[0][2]),
+                            lambda op: op[1],
+                            operand=(state, waypoint))
 
     def tree_flatten(self):
         children = ()  # arrays / dynamic values
-        aux_data = {'dt':self.dt, 'vlim':self.vlim}  # static values
+        aux_data = {'dt': self.dt, 'vlim': self.vlim, 'vlim_down': self.vlim_down}  # static values
         return (children, aux_data)
     
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        return DeterministicAltitudeModel(aux_data['dt'])
+        # Reconstruct the model and restore all static attributes.
+        model = DeterministicAltitudeModel(aux_data['dt'])
+        model.vlim = aux_data['vlim']
+        model.vlim_down = aux_data['vlim_down']
+        return model
+
 
 def make_weather_balloon(init_lat, init_lon, init_pressure, start_time, atmosphere, waypoint_time_step, integration_time_step):
     return Airborne(
@@ -54,7 +72,7 @@ def cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, int
         x, y, altitude, _ = balloon.state
         
         cost += factor * (balloon.state[0]**2 + balloon.state[1]**2)
-        factor *= 0.99
+        # factor *= 0.99
         
         # plan_change_penalty = 50 * jax.lax.cond(i > 0, 
         #                                    lambda: (plan[i,0] - plan[i-1,0]) ** 2, 
@@ -92,13 +110,33 @@ def generate_fourier_plan(num_steps, num_frequencies):
     return plan.reshape(-1, 1)
     
 def make_plan(start_time, num_plans, num_steps, balloon, wind, atmosphere, waypoint_time_step, integration_time_step):
-        
+    is_awesome = True
+
     best_plan = -1
     best_cost = +np.inf
 
+    min_altitude, max_altitude = 15.1, 19.1
+
     for _ in range(num_plans):
-        plan = 13 + 9*np.random.rand(1)
-        plan = np.full((num_steps, 1), plan)
+
+        if is_awesome:
+            x, y, altitude, _ = balloon.state
+
+            target = min_altitude + (max_altitude - min_altitude)*np.random.rand()
+            delta = (target - altitude)
+            vlim = 1.0 if delta > 0 else 0.5
+            limit = vlim / 3600.0 * waypoint_time_step
+            steps_to_reach = int(abs(delta)/limit)
+            
+            start_plan = np.linspace(altitude, target, steps_to_reach)
+            start_plan = start_plan.reshape(-1, 1)
+            end_plan = np.full((num_steps - steps_to_reach, 1), target)
+
+            # Concatenate them along axis 0 to form a (num_steps, 1) array
+            plan = np.concatenate([start_plan, end_plan], axis=0)
+        else:
+            plan = min_altitude + (max_altitude - min_altitude)*np.random.rand(1)
+            plan = np.full((num_steps, 1), plan)
 
         # plan = generate_fourier_plan(num_steps, 10)
 
@@ -109,12 +147,13 @@ def make_plan(start_time, num_plans, num_steps, balloon, wind, atmosphere, waypo
 
     return jnp.array(best_plan), best_cost
 
+
 #@profile
 def convert_plan_to_actions(plan, observation, i, atmosphere):
     i %= len(plan)
     _, _, _, pressure = observation
     height = atmosphere.at_pressure(pressure).height.km
-    if abs(height - plan[i]) < 0.5:
+    if abs(height - plan[i]) < 0.10:
         return 1 #STAY
 
     if height < plan[i]:

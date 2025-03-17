@@ -36,42 +36,15 @@ prior_results = {
     21: {"MPC": (673.90, 0.613), "Perciatelli44": (907.40, 0.922), "StationSeeker": (747.31, 0.704)},
     22: {"MPC": (852.31, 0.851), "Perciatelli44": (805.74, 0.784), "StationSeeker": (767.27, 0.713)},
 }
-# datapath = "diagnostics/mpcagent-replanning.json"
-# datapath = "diagnostics/mpcagent-no-plan.json"
-# datapath = "diagnostics/mpcagent-no-plan-with-noise.json"
-# datapath = "diagnostics/mpcagent-no-plan-with-more-noise.json"
-# datapath = "diagnostics/MPCAgent-1740776475969.json"
-# datapath = "diagnostics/mpcagent-no-plan-no-replan.json"
-# datapath = "diagnostics/mpcagent-no-plan-no-replan.json"
-# datapath = "diagnostics/mpcagent-replanning-agressive-control.json"
-# datapath = "diagnostics/mpc4-debug.json"
-# datapath = "diagnostics/mpcagent-wind-error-reset-every-23.json"
-# datapath = "diagnostics/mpcagent-wind-error.json"
-# datapath = "diagnostics/mpcagent-no-wind-noise-deadreckon-reset-every-23.json"
-# datapath = "diagnostics/deadreckon-with-correct-wind.json"
-# datapath = "diagnostics/mpcagent-no-wind-noise-deadreckon-FIXED.json"
-# datapath = "diagnostics/MPCAgent-1740947274453.json"
-# datapath = "diagnostics/MPCAgent-1740947490813.json"
-# datapath = "diagnostics/MPCAgent-1740947597406.json"
-# datapath = "diagnostics/MPCAgent-1740948517234.json"
-# datapath = "diagnostics/MPC4Agent-1740951597843.json"
-# datapath = "diagnostics/mpcagent-replanned-fixed-wind-field-with-noise.json"
-# datapath = "diagnostics/MPC4FollowerAgent-1741027696110.json"
-# datapath = "diagnostics/MPCAgent-1741148859614.json"
-# datapath = "diagnostics/MPCAgent-1741151447192.json"
-# datapath = datapaths[1]#"diagnostics/MPCAgent-1741152861243.json"
-# datapath = "diagnostics/MPC4Agent-1741198787338.json"
-# datapath = "diagnostics/used_in_report/mpc4agent-no-replan-fixed-wind-full-horizon.json"
-# datapath = "diagnostics/MPC4Agent-1741294093372.json"
-# datapath = "diagnostics/MPC4Agent-1741294180645.json"
-# datapath = "diagnostics/used_in_report/mpcagenet-no-replan-fixed-wind-full-horizon.json"
-# datapath = "diagnostics/MPC4Agent-1741294476000.json" 
-# datapath = "diagnostics/MPC4Agent-1741295136940.json"
-# datapath = "diagnostics/MPC4Agent-1741297098842.json"
-datapath = "diagnostics/used_in_report/mpc4agent-replanned-fixed-wind-with-noise.json"
-# datapath = "diagnostics/MPC4Agent-1741297195697.json"
-# datapath = "diagnostics/MPCAgent-1741297366179.json"
-agent = 'mpc4_agent'
+# diagnostics/MPCAgent-1742156446638.json
+# diagnostics/MPCAgent-1742156748804.json
+# datapath = "diagnostics/MPCAgent-1742157269044.json"
+# datapath = "diagnostics/MPCAgent-1742158470954.json"
+# datapath = "diagnostics/MPCAgent-1742159194286.json"
+# datapath = "diagnostics/MPCAgent-1742160106991.json"
+datapath = "diagnostics/MPCAgent-1742161918509.json"
+# datapath = "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-no-noise-initializations-up-to-19km.json"
+agent = 'mpc_agent'
 diagnostics = json.load(open(datapath, 'r'))
 
 # perciatelli_datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/Perciatelli44-1740594371922.json"
