@@ -11,6 +11,10 @@ from atmosnav import *
 import atmosnav as atm
 from functools import partial
 
+import optax 
+
+MIN_ALT, MAX_ALT = 15.1, 19.1
+
 class DeterministicAltitudeModel(Dynamics):
 
     def __init__(self, integration_time_step):
@@ -20,7 +24,7 @@ class DeterministicAltitudeModel(Dynamics):
         self.vlim_down = 1.0 / 2.0
 
     def control_input_to_delta_state(self, time, state, control_input, wind_vector):
-        h = self.update(state, control_input[0])
+        h = self.update(state, control_input)
         return jnp.array([wind_vector[0], wind_vector[1], h - state[2], 0.0]), self
 
     def update(self, state, waypoint):
@@ -35,10 +39,13 @@ class DeterministicAltitudeModel(Dynamics):
         # Update altitude using jax.lax.cond:
         # If the absolute difference is larger than 'limit', move by 'limit' in the correct direction.
         # Otherwise, set altitude directly to the waypoint.
-        return jax.lax.cond(jnp.abs(delta) > limit,
-                            lambda op: op[0][2] + limit * jnp.sign(op[1] - op[0][2]),
-                            lambda op: op[1],
-                            operand=(state, waypoint))
+        h = jax.lax.cond(jnp.abs(delta) > limit,
+            lambda op: op[0][2] + limit * jnp.sign(op[1] - op[0][2]),
+            lambda op: op[1],
+            operand=(state, waypoint))
+        
+        h = jnp.clip(h, MIN_ALT, MAX_ALT)
+        return h
 
     def tree_flatten(self):
         children = ()  # arrays / dynamic values
@@ -60,24 +67,26 @@ def make_weather_balloon(init_lat, init_lon, init_pressure, start_time, atmosphe
         PlanToWaypointController(start_time, waypoint_time_step),
         DeterministicAltitudeModel(integration_time_step))
 
-@partial(jax.jit, static_argnums=(5, 6))
-def cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, integration_time_step):
+@partial(jax.jit, static_argnums=(6, 7))
+def cost_at(start_time, balloon, plan_0, plan, wind, atmosphere, waypoint_time_step, integration_time_step, ):
     N = (waypoint_time_step * (len(plan)-1)) // integration_time_step
     factor = 1.0
     cost = 0.0
     plan_change_cost = 0.0
-    
+
+    plan = jnp.concatenate([jnp.array([plan_0]), plan])
+
     def inner_run(i, time_balloon_cost):
         time, balloon, cost, factor, plan_change_cost = time_balloon_cost
         x, y, altitude, _ = balloon.state
         
         cost += factor * (balloon.state[0]**2 + balloon.state[1]**2)
-        # factor *= 0.99
+        factor *= 0.99
         
-        # plan_change_penalty = 50 * jax.lax.cond(i > 0, 
-        #                                    lambda: (plan[i,0] - plan[i-1,0]) ** 2, 
-        #                                    lambda: 0.0)
-        # plan_change_cost += plan_change_penalty
+        plan_change_penalty = 50 * jax.lax.cond(i > 0, 
+                                           lambda: (plan[i] - plan[i-1]) ** 2, 
+                                           lambda: 0.0)
+        plan_change_cost += plan_change_penalty
         
         pressure = atmosphere.at_height(height_meters=altitude * 1000.0).pressure
         wind_vector = integration_time_step * wind.get_forecast(x, y, pressure, time) / 1000.0
@@ -85,13 +94,15 @@ def cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, int
         
         return time + integration_time_step, next_balloon, cost, factor, plan_change_cost
     
+    # t, balloon, _, factor, _ = inner_run(0, (start_time, balloon, 0.0, factor, 0.0))
+
     t, final_balloon, cost, factor, plan_change_cost = jax.lax.fori_loop(0, N, inner_run, 
                                                                          init_val=(start_time, balloon, cost, factor, plan_change_cost))
     
     total_cost = cost + plan_change_cost
     return total_cost
 
-gradient_at = jax.jit(jax.grad(cost_at, argnums=2), static_argnums=(5, 6))
+gradient_at = jax.jit(jax.grad(cost_at, argnums=3), static_argnums=(6, 7))
 
 np.random.seed(42)
 
@@ -115,37 +126,36 @@ def make_plan(start_time, num_plans, num_steps, balloon, wind, atmosphere, waypo
     best_plan = -1
     best_cost = +np.inf
 
-    min_altitude, max_altitude = 15.1, 19.1
-
     for _ in range(num_plans):
 
         if is_awesome:
             x, y, altitude, _ = balloon.state
 
-            target = min_altitude + (max_altitude - min_altitude)*np.random.rand()
+            target = MIN_ALT + (MAX_ALT - MIN_ALT)*np.random.rand()
             delta = (target - altitude)
             vlim = 1.0 if delta > 0 else 0.5
             limit = vlim / 3600.0 * waypoint_time_step
-            steps_to_reach = int(abs(delta)/limit)
+            steps_to_reach = int(abs(delta)/limit + 1)
             
+            # print(steps_to_reach>=240)
+
             start_plan = np.linspace(altitude, target, steps_to_reach)
-            start_plan = start_plan.reshape(-1, 1)
-            end_plan = np.full((num_steps - steps_to_reach, 1), target)
+            end_plan = np.full((num_steps - steps_to_reach), target)
 
             # Concatenate them along axis 0 to form a (num_steps, 1) array
             plan = np.concatenate([start_plan, end_plan], axis=0)
         else:
-            plan = min_altitude + (max_altitude - min_altitude)*np.random.rand(1)
-            plan = np.full((num_steps, 1), plan)
+            plan = MIN_ALT + (MAX_ALT - MIN_ALT)*np.random.rand(1)
+            plan = np.full(num_steps, plan)
 
         # plan = generate_fourier_plan(num_steps, 10)
 
-        cost = cost_at(start_time, balloon, plan, wind, atmosphere, waypoint_time_step, integration_time_step)
+        cost = cost_at(start_time, balloon, plan[0], plan[1:], wind, atmosphere, waypoint_time_step, integration_time_step)
         if cost < best_cost:
             best_plan = plan
             best_cost = cost
 
-    return jnp.array(best_plan), best_cost
+    return best_plan[0], best_plan[1:], best_cost
 
 
 #@profile
@@ -261,14 +271,38 @@ class MPCAgent(agent.Agent):
         # path_noise = np.random.uniform(-1, 1, size=(self.plan_size, 1))
         # self.plan = np.full((self.plan_size, 1), fill_value=self.atmosphere.at_pressure(pressure).height.km.item())
         
-        self.plan, best_cost = make_plan(self.time, self.num_initializations, self.plan_size, self.balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
+        plan_0, plan, best_cost = make_plan(self.time, self.num_initializations, self.plan_size, self.balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
 
-        for i in range(100):
-            dplan = gradient_at(self.time, self.balloon, self.plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
-            if abs(jnp.linalg.norm(dplan)) < 1e-7:
+        learning_rate = 0.01
+        optimizer = optax.adam(learning_rate)
+        
+        opt_state = optimizer.init(plan)
+
+        # Optimization step function
+        @jax.jit 
+        def optimization_step(plan, opt_state):
+            dplan = gradient_at(
+                self.time, self.balloon, plan_0, plan,
+                self.forecast, self.atmosphere,
+                self.waypoint_time_step, self.integration_time_step
+            )
+            
+            # Compute updates
+            updates, opt_state = optimizer.update(dplan, opt_state, plan)
+            
+            # Apply updates to the plan
+            plan = optax.apply_updates(plan, updates)
+
+            return plan, opt_state, jnp.linalg.norm(dplan)
+
+        # Run optimization loop
+        for iters in range(500):
+            plan, opt_state, grad_norm = optimization_step(plan, opt_state)
+            if grad_norm < 1e-7:
                 break
-            self.plan -= dplan / (np.linalg.norm(dplan) + 0.0001)
+        print('Took', (iters + 1) ,'iterations')
 
+        self.plan = np.concatenate([np.array([plan_0]), np.array(plan)])
         self.i = 0
         action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
 
