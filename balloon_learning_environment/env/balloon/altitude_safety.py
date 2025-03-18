@@ -69,6 +69,8 @@ class AltitudeSafetyLayer:
         transitions=_ALTITUDE_SAFETY_TRANSITIONS,
         initial=_AltitudeState.NOMINAL)
     logging.getLogger('transitions').setLevel(logging.WARNING)
+    self._up_triggered = 0
+    self._stay_triggered = 0
 
   def get_action(self, action: control.AltitudeControlCommand,
                  atmosphere: standard_atmosphere.Atmosphere,
@@ -88,13 +90,19 @@ class AltitudeSafetyLayer:
 
     if self._state_machine.state == _AltitudeState.VERY_LOW:
       # If the balloon is too low, make it ascend.
+      self._up_triggered += 1
       return control.AltitudeControlCommand.UP
     elif self._state_machine.state == _AltitudeState.LOW:
       # If the balloon is almost too low, don't let it go lower.
       if action == control.AltitudeControlCommand.DOWN:
+        self._stay_triggered += 1
         return control.AltitudeControlCommand.STAY
 
     return action
+  
+  @property
+  def safety_triggered(self):
+    return self._up_triggered + self._stay_triggered
 
   @property
   def navigation_is_paused(self):

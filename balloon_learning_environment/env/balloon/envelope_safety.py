@@ -105,6 +105,8 @@ class EnvelopeSafetyLayer:
         initial=_SuperpressureState.NOMINAL)
     logging.getLogger('transitions').setLevel(logging.WARNING)
     self._max_superpressure = max_superpressure
+    self._stay_triggered = 0
+    self._up_triggered = 0
 
   def get_action(
       self, action: control.AltitudeControlCommand,
@@ -126,14 +128,20 @@ class EnvelopeSafetyLayer:
 
     if (self._state_machine.state in
         (_SuperpressureState.LOW_CRITICAL, _SuperpressureState.HIGH_CRITICAL)):
+      self._up_triggered +=1
       return control.AltitudeControlCommand.UP
 
     if (self._state_machine.state in
         (_SuperpressureState.LOW, _SuperpressureState.HIGH)):
       if action == control.AltitudeControlCommand.DOWN:
+        self._stay_triggered += 1
         return control.AltitudeControlCommand.STAY
 
     return action
+  
+  @property
+  def safety_triggered(self):
+    return self._stay_triggered + self._up_triggered
 
   @property
   def navigation_is_paused(self):
