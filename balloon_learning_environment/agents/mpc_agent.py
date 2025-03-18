@@ -19,9 +19,9 @@ class DeterministicAltitudeModel(Dynamics):
 
     def __init__(self, integration_time_step):
         self.dt = integration_time_step
-        self.vlim = 1.0
+        self.vlim = 0.9
         # For descending, the maximum change is half that for ascending
-        self.vlim_down = 1.0 / 2.0
+        self.vlim_down = 0.35
 
     def control_input_to_delta_state(self, time, state, control_input, wind_vector):
         h = self.update(state, control_input)
@@ -83,10 +83,10 @@ def cost_at(start_time, balloon, plan_0, plan, wind, atmosphere, waypoint_time_s
         cost += factor * (balloon.state[0]**2 + balloon.state[1]**2)
         factor *= 0.99
         
-        plan_change_penalty = 50 * jax.lax.cond(i > 0, 
-                                           lambda: (plan[i] - plan[i-1]) ** 2, 
-                                           lambda: 0.0)
-        plan_change_cost += plan_change_penalty
+        # plan_change_penalty = 50 * jax.lax.cond(i > 0, 
+        #                                    lambda: (plan[i] - plan[i-1]) ** 2, 
+        #                                    lambda: 0.0)
+        # plan_change_cost += plan_change_penalty
         
         pressure = atmosphere.at_height(height_meters=altitude * 1000.0).pressure
         wind_vector = integration_time_step * wind.get_forecast(x, y, pressure, time) / 1000.0
@@ -133,7 +133,7 @@ def make_plan(start_time, num_plans, num_steps, balloon, wind, atmosphere, waypo
 
             target = MIN_ALT + (MAX_ALT - MIN_ALT)*np.random.rand()
             delta = (target - altitude)
-            vlim = 1.0 if delta > 0 else 0.5
+            vlim = 0.9 if delta > 0 else 0.35
             limit = vlim / 3600.0 * waypoint_time_step
             steps_to_reach = int(abs(delta)/limit + 1)
             
@@ -273,34 +273,43 @@ class MPCAgent(agent.Agent):
         
         plan_0, plan, best_cost = make_plan(self.time, self.num_initializations, self.plan_size, self.balloon, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
 
-        learning_rate = 0.01
-        optimizer = optax.adam(learning_rate)
-        
-        opt_state = optimizer.init(plan)
-
-        # Optimization step function
-        @jax.jit 
-        def optimization_step(plan, opt_state):
-            dplan = gradient_at(
-                self.time, self.balloon, plan_0, plan,
-                self.forecast, self.atmosphere,
-                self.waypoint_time_step, self.integration_time_step
-            )
+        if False:
+            learning_rate = 0.01
+            optimizer = optax.adam(learning_rate)
             
-            # Compute updates
-            updates, opt_state = optimizer.update(dplan, opt_state, plan)
-            
-            # Apply updates to the plan
-            plan = optax.apply_updates(plan, updates)
+            opt_state = optimizer.init(plan)
 
-            return plan, opt_state, jnp.linalg.norm(dplan)
+            # Optimization step function
+            @jax.jit 
+            def optimization_step(plan, opt_state):
+                dplan = gradient_at(
+                    self.time, self.balloon, plan_0, plan,
+                    self.forecast, self.atmosphere,
+                    self.waypoint_time_step, self.integration_time_step
+                )
+                
+                # Compute updates
+                updates, opt_state = optimizer.update(dplan, opt_state, plan)
+                
+                # Apply updates to the plan
+                plan = optax.apply_updates(plan, updates)
 
-        # Run optimization loop
-        for iters in range(500):
-            plan, opt_state, grad_norm = optimization_step(plan, opt_state)
-            if grad_norm < 1e-7:
-                break
-        print('Took', (iters + 1) ,'iterations')
+                return plan, opt_state, jnp.linalg.norm(dplan)
+
+            # Run optimization loop
+            for iters in range(500):
+                plan, opt_state, grad_norm = optimization_step(plan, opt_state)
+                if grad_norm < 1e-7:
+                    break
+            print('Took', (iters + 1) ,'iterations')
+        else:
+            for iters in range(500):
+                dplan = gradient_at(self.time, self.balloon, plan_0, plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
+                if abs(jnp.linalg.norm(dplan)) < 1e-7:
+                    break
+                plan -= 0.01 * dplan / jnp.linalg.norm(dplan)
+            print('Took', (iters + 1) ,'iterations')
+            # pass
 
         self.plan = np.concatenate([np.array([plan_0]), np.array(plan)])
         self.i = 0
