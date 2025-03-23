@@ -2,10 +2,12 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 
-datapaths = [
-            "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-no-noise.json",
-            # "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-no-noise-initializations-up-to-19km.json",
-            "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-with-noise.json"]
+# datapaths = [
+#             "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-no-noise.json",
+#             # "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-no-noise-initializations-up-to-19km.json",
+#             "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-with-noise.json"]
+
+datapaths = ["diagnostics/MPC4Agent-1742765048740.json", "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-no-noise.json"]
 
 agent = 'mpc_agent'
 
@@ -42,9 +44,17 @@ prior_results = {
 # datapath = "diagnostics/MPCAgent-1742158470954.json"
 # datapath = "diagnostics/MPCAgent-1742159194286.json"
 # datapath = "diagnostics/MPCAgent-1742160106991.json"
-datapath = "diagnostics/MPCAgent-1742161918509.json"
+# datapath = "diagnostics/MPCAgent-1742161918509.json"
+# datapath = "diagnostics/used_in_report/mpc4agent-no-replan-fixed-wind-field-no-wind-noise-240-steps.json"
+datapath = "diagnostics/used_in_report/mpcagent-no-replan-fixed-wind-field-no-wind-noise-240-steps.json"
 # datapath = "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-no-noise-initializations-up-to-19km.json"
-agent = 'mpc_agent'
+datapath = "diagnostics/MPC4Agent-1742759266647.json"
+datapath = "diagnostics/MPC4Agent-1742761566816.json"
+datapath = "diagnostics/MPCAgent-1742762525802.json"
+datapath = "diagnostics/MPC4Agent-1742762127491.json"
+# datapath = "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-no-noise.json"
+datapath = "diagnostics/MPC4Agent-1742765048740.json"
+agent = 'mpc4_agent'
 diagnostics = json.load(open(datapath, 'r'))
 
 # perciatelli_datapath = "/Users/myles/Programming/sdean/balloon-learning-environment/Perciatelli44-1740594371922.json"
@@ -102,33 +112,19 @@ for seed, result in diagnostics.items():
         input()
         continue 
 
-    TIME = list(range(result['steps'] + 1))
+    TIME = list(range(result['steps'] + 2))
 
-    mpc_agent_plan = np.array(result['rollout'][agent]['plan'])
     agent_z = np.array(result['rollout'][agent]['z'])
     simulation_z = np.array(result['rollout']['simulator']['z'])
 
-    print('plan<->mpc-rollout fidelity:', np.linalg.norm(mpc_agent_plan - agent_z))
-    print('plan<->sim-rollout fidelity:', np.linalg.norm(mpc_agent_plan - simulation_z))
-    print('mpc-rollout<->sim-rollout fidelity:', np.linalg.norm(simulation_z - agent_z))
-
     agent_x = np.array(result['rollout'][agent]['x'])
     simulation_x = np.array(result['rollout']['simulator']['x'])
-    print('mpc-rollout x<->sim-rollout x fidelity:', np.linalg.norm(agent_x - simulation_x))
-
-
-    # plt.plot(range(result['steps']+1), mpc_agent_x, label='mpc x')
-    # plt.plot(range(result['steps']+1), simulation_x, label='simulation x')
-    # plt.legend()
-    # plt.title('mpc-rollout x<->sim-rollout x')
-    # plt.show()
-
 
     agent_y = np.array(result['rollout'][agent]['y'])
     simulation_y = np.array(result['rollout']['simulator']['y'])
-    print('mpc-rollout x<->sim-rollout y fidelity:', np.linalg.norm(agent_y - simulation_y))
-    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
 
+    # if False:
+    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
 
     # First subplot (X dynamics)
     axs[0].plot(TIME, agent_x, label="Agent X", linestyle="--")
@@ -182,20 +178,21 @@ for seed, result in diagnostics.items():
     twrs.append(twr_score)
 
     if agent == 'mpc_agent':
-        plt.plot(range(result['steps']+1), mpc_agent_plan, label='mpc plan')
+        mpc_agent_plan = np.insert(mpc_agent_plan, 0, mpc_agent_plan[0])
+        plt.plot(range(result['steps']+2), mpc_agent_plan, label='mpc plan')
 
-    plt.plot(range(result['steps']+1), agent_z, label='mpc dynamics rollout')
-    plt.plot(range(result['steps']+1), simulation_z, label='simulator rollout')
+    plt.plot(TIME, agent_z, label='mpc dynamics rollout')
+    plt.plot(TIME, simulation_z, label='simulator rollout')
     plt.legend()
-    plt.title(f'seed={seed}, twr_score={twr_score}, fidelity={fidelity}')
+    # plt.title(f'seed={seed}, twr_score={twr_score}, fidelity={fidelity}')
     plt.show()
 
     if agent == 'mpc4_agent':
-        plt.plot(range(result['steps']+1), mpc_agent_plan, label='mpc plan')
+        plt.plot(range(result['steps']+1), np.array(result['rollout'][agent]['plan']), label='mpc plan')
         plt.title('mpc plan (-1 <-> +1)')
         plt.show()
 
-    print(f"seed={seed}, reward_score={reward_score:.5}, twr_score={twr_score:.3}, fidelity={fidelity}")
+    # print(f"seed={seed}, reward_score={reward_score:.5}, twr_score={twr_score:.3}, fidelity={fidelity}")
 
 
 

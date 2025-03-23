@@ -16,7 +16,7 @@ from balloon_learning_environment.env.balloon import standard_atmosphere
 
 from balloon_learning_environment.utils import units
 from balloon_learning_environment.utils import sampling
-
+import json
 from atmosnav.utils import alt2p as alt2p_atm
 from atmosnav.utils import p2alt
 from atmosnav import *
@@ -181,78 +181,100 @@ def test_simulate_step():
 def run_simulation():
     balloon_state = initialize_balloon()
 
-    bballoon = balloon.Balloon(initialize_balloon())
-    gballoon = JaxBalloon(JaxBalloonState.from_ble_state(balloon_state))
-    # gballoon = GBalloon(
-    #     x=balloon_state.x.meters, 
-    #     y=balloon_state.y.meters,
-    #     pressure=balloon_state.pressure, 
-    #     volume=balloon_state.envelope_volume, 
-    #     mass=balloon_state.payload_mass + balloon_state.envelope_mass 
-    #     # TODO: i think technically there are more mass values but I'm also guessing they are much smaller 
-    # )
-
-    print("run_simulation(): balloon initialized")
-
-    time_steps = 500
-    time_delta = 3*60
-    stride = 60  # seconds
-    pressures = []
-    altitudes = []
-
-    pressures1=[]
-    altitudes1=[]
+    datetimes1 = []
+    datetimes = []
 
 
     jax_atmopshere = atmosphere.to_jax_atmopshere()
 
-    for t in range(time_steps):
-        # print(t)
-        # action = jnp.sin(t / 30.0)  # Example control action
-        # # action = (t//24%3) - 1
+    
+    datapath = "diagnostics/used_in_report/mpc4agent-no-replan-fixed-wind-field-no-wind-noise-240-steps.json"
+    agent_name = 'mpc4_agent'
+    diagnostics = json.load(open(datapath, 'r'))
 
-        action = (t < 30) * 1.0
+    for key in diagnostics:
+        bballoon = balloon.Balloon(initialize_balloon())
+        gballoon = JaxBalloon(JaxBalloonState.from_ble_state(balloon_state))
+        # gballoon = GBalloon(
+        #     x=balloon_state.x.meters, 
+        #     y=balloon_state.y.meters,
+        #     pressure=balloon_state.pressure, 
+        #     volume=balloon_state.envelope_volume, 
+        #     mass=balloon_state.payload_mass + balloon_state.envelope_mass 
+        #     # TODO: i think technically there are more mass values but I'm also guessing they are much smaller 
+        # )
 
-        wind_vector = jnp.array([1.0, 0.0])  # Constant wind to the east
-        
-        # gballoon = gballoon.step(action, wind_vector, atmosphere.to_jax_atmopshere(), stride)
-        gballoon = gballoon.simulate_step_continuous(wind_vector, jax_atmopshere, action, time_delta, stride)
+        print("run_simulation(): balloon initialized")
 
-        bballoon.simulate_step(
-            WindVector(units.Velocity(mps=1.0), units.Velocity(mps=0.0)), 
-            atmosphere, 
-            action, 
-            dt.timedelta(seconds=time_delta), 
-            dt.timedelta(seconds=stride))
+        time_steps = 240
+        time_delta = 3*60
+        stride = 10  # seconds
+        pressures = []
+        altitudes = []
 
-        pressures.append(gballoon.state.pressure)
-        altitudes.append(jax_atmopshere.at_pressure(pressures[-1]).height.km)
+        pressures1=[]
+        altitudes1=[]
 
-        pressures1.append(bballoon.state.pressure)
-        altitudes1.append(atmosphere.at_pressure(pressures1[-1]).height.km)
+        plan = diagnostics[key]['rollout'][agent_name]['plan']
 
-    # Plot results
-    plt.figure(figsize=(12, 5))
-    plt.subplot(1, 2, 1)
-    # plt.plot(range(time_steps), pressures1)
-    plt.plot(range(time_steps), altitudes1)
-    # plt.title("Balloon Pressure Over Time")
-    plt.title("balloon.Balloon")
-    plt.xlabel("Time (s)")
-    # plt.ylabel("Pressure (Pa)")
-    plt.ylabel("Altitude (km)")
+        for t in range(time_steps):
+            # print(t)
+            # action = jnp.sin(t / 30.0)  # Example control action
+            # # action = (t//24%3) - 1
 
-    plt.subplot(1, 2, 2)
-    # plt.plot(range(time_steps), pressures)
-    plt.plot(range(time_steps), altitudes)
-    plt.title("JaxBalloon")
-    plt.xlabel("Time (s)")
-    plt.ylabel("Altitude (km)")
+            # datetimes.append(bballoon.state.date_time.timestamp())
+            # datetimes1.append(gballoon.state.date_time)
 
-    plt.tight_layout()
-    plt.show()
+            action = plan[t]
 
-# run_simulation()
+            wind_vector = jnp.array([1.0, 0.0])  # Constant wind to the east
+            
+            # gballoon = gballoon.step(action, wind_vector, atmosphere.to_jax_atmopshere(), stride)
+            gballoon = gballoon.simulate_step_continuous(wind_vector, jax_atmopshere, action, time_delta, stride)
+
+            bballoon.simulate_step(
+                WindVector(units.Velocity(mps=1.0), units.Velocity(mps=0.0)), 
+                atmosphere, 
+                action, 
+                dt.timedelta(seconds=time_delta), 
+                dt.timedelta(seconds=stride))
+            
+            # Compares the datetime of the two balloons
+            # print(f"GBalloon: {gballoon.state.date_time}, Balloon: {bballoon.state.date_time.timestamp()}")
+
+            pressures.append(gballoon.state.pressure)
+            altitudes.append(jax_atmopshere.at_pressure(pressures[-1]).height.km)
+
+            pressures1.append(bballoon.state.pressure)
+            altitudes1.append(atmosphere.at_pressure(pressures1[-1]).height.km)
+
+        # Plot results
+        plt.figure(figsize=(12, 5))
+        # plt.subplot(1, 2, 1)
+        # plt.plot(range(time_steps), pressures1)
+        plt.plot(range(time_steps), altitudes1)
+        # plt.title("Balloon Pressure Over Time")
+        # plt.title("balloon.Balloon")
+        # plt.xlabel("Time (s)")
+        # plt.ylabel("Pressure (Pa)")
+        # plt.ylabel("Altitude (km)")
+
+        # plt.subplot(1, 2, 2)
+        # plt.plot(range(time_steps), pressures)
+        plt.plot(range(time_steps), altitudes)
+        # plt.title("JaxBalloon")
+        plt.xlabel("Time (s)")
+        plt.ylabel("Altitude (km)")
+
+        plt.tight_layout()
+        plt.show()
+
+    # plt.plot(range(time_steps), datetimes)
+    # plt.plot(range(time_steps), datetimes1)
+    # plt.show()
+
+
+run_simulation()
 
 def test_mpc_initializations():
     # Balloon configuration
@@ -334,4 +356,4 @@ def test_opd():
         batched_cost.append(jax_plan_cost(jnp.array(initial_plans[i]), jax_balloon, jax_wind_forecast, jax_atmopshere, plan_delta_time, 60))
     print(np.min(batched_cost))
 
-test_opd()
+# test_opd()
