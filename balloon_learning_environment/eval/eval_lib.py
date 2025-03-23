@@ -190,6 +190,7 @@ def eval_agent(agent: base_agent.Agent,
     observation = env.reset()
     agent.update_forecast(env.get_wind_forecast())
     agent.update_atmosphere(env.get_atmosphere())
+    agent.write_diagnostics_start(observation, diagnostic)
     action = agent.begin_episode(observation)
     agent.write_diagnostics(diagnostic)
     simulator_write_diagnostics(diagnostic, env.get_simulator_state())
@@ -231,6 +232,7 @@ def eval_agent(agent: base_agent.Agent,
 
     twr = steps_within_radius / step_count
     agent.write_diagnostics_end(diagnostic)
+    simulator_write_diagnostics(diagnostic, env.get_simulator_state())
 
     # 
     diagnostics[seed]={'seed': seed, 'twr': twr, 'reward': total_reward, 'steps': step_count, 'rollout': diagnostic}

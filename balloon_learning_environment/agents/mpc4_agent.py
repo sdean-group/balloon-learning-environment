@@ -138,7 +138,7 @@ class MPC4Agent(agent.Agent):
         self.time_delta = 3*60
         self.stride = 10
 
-        self.plan_steps = (self.plan_time // self.time_delta) # // 3
+        self.plan_steps = 240 # (self.plan_time // self.time_delta) // 3
 
         self.plan = None # jnp.full((self.plan_steps, ), fill_value=1.0/3.0)
         self.i = 0
@@ -182,9 +182,9 @@ class MPC4Agent(agent.Agent):
         # balloon = JaxBalloon(jax_balloon_state_from_observation(observation))
 
         observation: JaxBalloonState = observation
-        if self.balloon is not None:
-            observation.x = self.balloon.state.x
-            observation.y = self.balloon.state.y
+        # if self.balloon is not None:
+        #     observation.x = self.balloon.state.x
+        #     observation.y = self.balloon.state.y
         self.balloon = JaxBalloon(observation)
 
         # current_plan_cost = jax_plan_cost(self.plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
@@ -193,7 +193,8 @@ class MPC4Agent(agent.Agent):
 
         # TODO: is it necessary to pass in forecast when just trying to get to a height?
         
-        initialization_type = 'random'
+        initialization_type = 'best_altitude'
+        print('USING ' + initialization_type + ' INITIALIZATION')
 
         if initialization_type == 'opd':
             start = opd.ExplorerState(
@@ -207,7 +208,7 @@ class MPC4Agent(agent.Agent):
             initial_plan =  opd.get_plan_from_opd_node(best_node, search_delta_time=search_delta_time, plan_delta_time=self.time_delta)
 
         elif initialization_type == 'best_altitude':
-            initial_plans = get_initial_plans(self.balloon, 500, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
+            initial_plans = get_initial_plans(self.balloon, 100, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
             batched_cost = []
             for i in range(len(initial_plans)):
                 batched_cost.append(jax_plan_cost(jnp.array(initial_plans[i]), self.balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
@@ -215,7 +216,7 @@ class MPC4Agent(agent.Agent):
 
             # print(np.min(batched_cost))
             initial_plan = initial_plans[np.argmin(batched_cost)]
-            print(time.time() - b4, 's to get minimum cost plan')
+            # print(time.time() - b4, 's to get minimum cost plan')
         elif initialization_type == 'random':
             initial_plan = np.random.uniform(-1.0, 1.0, size=(self.plan_steps, ))
         else:
@@ -235,6 +236,8 @@ class MPC4Agent(agent.Agent):
             print(time.time() - b4, 's to get optimized plan')
             self.plan = sigmoid(self.plan)
             print(time.time() - b4, 's to get optimized plan')
+        else:
+            self.plan = initial_plan
 
         self.i = 0
 
@@ -253,6 +256,7 @@ class MPC4Agent(agent.Agent):
         # self._deadreckon()
         # print(observation.battery_charge/observation.battery_capacity)
         if not REPLANNING:
+            self._deadreckon()
             action = self.plan[self.i]
             return action.item()
         else:
@@ -261,10 +265,33 @@ class MPC4Agent(agent.Agent):
                 # self.plan = jnp.vstack((self.plan[N:], jax.random.uniform(self.key, (N, ))))
                 return self.begin_episode(observation)
             else:
-                print('not replanning')
+                # print('not replanning')
+                self._deadreckon()
                 action = self.plan[self.i]
                 # print('action', action)
                 return action.item()
+            
+    def write_diagnostics_start(self, observation, diagnostics):
+        if 'mpc4_agent' not in diagnostics:
+            diagnostics['mpc4_agent'] = {'x': [], 'y': [], 'z':[], 'wind':[], 'plan':[]}
+
+        observation: JaxBalloonState = observation
+        balloon = JaxBalloon(observation)
+        
+        height = self.atmosphere.at_pressure(balloon.state.pressure).height.km.item()
+
+        diagnostics['mpc4_agent']['x'].append(balloon.state.x/1000)
+        diagnostics['mpc4_agent']['y'].append(balloon.state.y/1000)
+        diagnostics['mpc4_agent']['z'].append(height)
+        # diagnostics['mpc4_agent']['plan'].append(0.0)
+
+        wind_vector = self.forecast.get_forecast(
+            balloon.state.x/1000, 
+            balloon.state.y/1000, 
+            balloon.state.pressure, 
+            balloon.state.time_elapsed)
+        diagnostics['mpc4_agent']['wind'].append([wind_vector[0].item(), wind_vector[1].item()])
+
     
     def write_diagnostics(self, diagnostics):
         if 'mpc4_agent' not in diagnostics:

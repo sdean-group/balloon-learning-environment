@@ -11,6 +11,9 @@ from atmosnav import *
 import atmosnav as atm
 from functools import partial
 
+# imports jaxballoon file:
+from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
+
 import optax 
 
 MIN_ALT, MAX_ALT = 15.1, 19.1
@@ -254,7 +257,6 @@ class MPCAgent(agent.Agent):
         self.time = int(observation[0].total_seconds()) 
         # print('time given', self.time/3600)
 
-        
         # # t, x, y, pressure = observation
         self.balloon = make_weather_balloon(
             # x if self.balloon is None or self.j%(1000) == 0 else self.balloon.state[0],
@@ -334,6 +336,38 @@ class MPCAgent(agent.Agent):
             action = convert_plan_to_actions(self.plan, observation, self.i, self.atmosphere)
             self._deadreckon()
             return action
+
+    def write_diagnostics_start(self, observation, diagnostics):
+        if 'mpc_agent' not in diagnostics:
+            diagnostics['mpc_agent'] = {'x': [], 'y': [], 'z':[], 'wind':[], 'plan':[]}
+
+        x = observation[1].km
+        y = observation[2].km
+        pressure = observation[3]
+        time = int(observation[0].total_seconds()) 
+
+        balloon = make_weather_balloon(
+            x,
+            y,
+            pressure, 
+            time, 
+            self.atmosphere, 
+            self.waypoint_time_step, 
+            self.integration_time_step)
+
+
+        diagnostics['mpc_agent']['x'].append(balloon.state[0].item())
+        diagnostics['mpc_agent']['y'].append(balloon.state[1].item())
+        diagnostics['mpc_agent']['z'].append(balloon.state[2].item())
+        # diagnostics['mpc4_agent']['plan'].append(0.0)
+
+        wind_vector = self.forecast.get_forecast(
+            balloon.state[0]/1000, 
+            balloon.state[1]/1000, 
+            self.atmosphere.at_height(balloon.state[2]*1000).pressure, 
+            time)
+        diagnostics['mpc_agent']['wind'].append([wind_vector[0].item(), wind_vector[1].item()])
+
 
     def write_diagnostics(self, diagnostics):
         if 'mpc_agent' not in diagnostics:
