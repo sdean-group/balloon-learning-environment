@@ -93,7 +93,7 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
         time_to_top += 1
 
     time_to_bottom = 0
-    min_km_to_explore = 14.0# max(12.0, atmosphere.at_pressure(balloon.state.pressure).height.km - 2.0) # descending is harder
+    min_km_to_explore = 15.4
     # print('b')
     down_balloon = balloon
     while time_to_bottom < plan_steps and atmosphere.at_pressure(down_balloon.state.pressure).height.km > min_km_to_explore:

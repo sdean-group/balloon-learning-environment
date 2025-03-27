@@ -179,7 +179,6 @@ def test_simulate_step():
 # test_simulate_step()
 
 def run_simulation():
-    balloon_state = initialize_balloon()
 
     datetimes1 = []
     datetimes = []
@@ -188,90 +187,112 @@ def run_simulation():
     jax_atmopshere = atmosphere.to_jax_atmopshere()
 
     
-    datapath = "diagnostics/used_in_report/mpc4agent-no-replan-fixed-wind-field-no-wind-noise-240-steps.json"
-    agent_name = 'mpc4_agent'
-    diagnostics = json.load(open(datapath, 'r'))
+    # datapath = "diagnostics/used_in_report/mpc4agent-no-replan-fixed-wind-field-no-wind-noise-240-steps.json"
+    # agent_name = 'mpc4_agent'
+    # diagnostics = json.load(open(datapath, 'r'))
+    # plan = diagnostics[key]['rollout'][agent_name]['plan']
+    # for key in diagnostics:
 
-    for key in diagnostics:
-        bballoon = balloon.Balloon(initialize_balloon())
-        gballoon = JaxBalloon(JaxBalloonState.from_ble_state(balloon_state))
-        # gballoon = GBalloon(
-        #     x=balloon_state.x.meters, 
-        #     y=balloon_state.y.meters,
-        #     pressure=balloon_state.pressure, 
-        #     volume=balloon_state.envelope_volume, 
-        #     mass=balloon_state.payload_mass + balloon_state.envelope_mass 
-        #     # TODO: i think technically there are more mass values but I'm also guessing they are much smaller 
-        # )
 
-        print("run_simulation(): balloon initialized")
+    for seed in range(10):
+        jax_pressures_table = {'up': [], 'down': []}
+        jax_altitudes_table = {'up': [], 'down': []}
 
-        time_steps = 240
-        time_delta = 3*60
-        stride = 10  # seconds
-        pressures = []
-        altitudes = []
+        google_pressures_table = {'up': [], 'down': []}
+        google_altitudes_table = {'up': [], 'down': []}
 
-        pressures1=[]
-        altitudes1=[]
+        for direction in ["up", "down"]:
+            going_up = direction == "up"
 
-        plan = diagnostics[key]['rollout'][agent_name]['plan']
+            jax_pressures = jax_pressures_table[direction]
+            jax_altitudes = jax_altitudes_table[direction]
 
-        for t in range(time_steps):
-            # print(t)
-            # action = jnp.sin(t / 30.0)  # Example control action
-            # # action = (t//24%3) - 1
+            google_pressures = google_pressures_table[direction]
+            google_altitudes = google_altitudes_table[direction]
 
-            # datetimes.append(bballoon.state.date_time.timestamp())
-            # datetimes1.append(gballoon.state.date_time)
+            balloon_state = initialize_balloon(key=jax.random.PRNGKey(seed=seed))
+            google_balloon = balloon.Balloon(balloon_state)
+            jax_balloon = JaxBalloon(JaxBalloonState.from_ble_state(balloon_state))
 
-            action = plan[t]
+            print("run_simulation(): balloon initialized")
 
-            wind_vector = jnp.array([1.0, 0.0])  # Constant wind to the east
-            
-            # gballoon = gballoon.step(action, wind_vector, atmosphere.to_jax_atmopshere(), stride)
-            gballoon = gballoon.simulate_step_continuous(wind_vector, jax_atmopshere, action, time_delta, stride)
+            time_steps = 240
+            time_delta = 3*60
+            stride = 10  # seconds
 
-            bballoon.simulate_step(
-                WindVector(units.Velocity(mps=1.0), units.Velocity(mps=0.0)), 
-                atmosphere, 
-                action, 
-                dt.timedelta(seconds=time_delta), 
-                dt.timedelta(seconds=stride))
-            
-            # Compares the datetime of the two balloons
-            # print(f"GBalloon: {gballoon.state.date_time}, Balloon: {bballoon.state.date_time.timestamp()}")
 
-            pressures.append(gballoon.state.pressure)
-            altitudes.append(jax_atmopshere.at_pressure(pressures[-1]).height.km)
+            for t in range(time_steps):
+                # print(t)
+                # action = jnp.sin(t / 30.0)  # Example control action
+                
+                # Go up until the balloon reaches 19.1km then stay
+                
+                # action = control.AltitudeControlCommand.UP if going_up else control.AltitudeControlCommand.DOWN
+                action = 1.0 if going_up else -1.0
 
-            pressures1.append(bballoon.state.pressure)
-            altitudes1.append(atmosphere.at_pressure(pressures1[-1]).height.km)
+                if min(len(google_pressures), len(jax_pressures)) > 0:    
+                    if going_up:
+                        if min(jax_altitudes[-1], google_altitudes[-1]) >= 19.1:
+                            break
+                    else:
+                        if max(jax_altitudes[-1], google_altitudes[-1]) <= 15.4:
+                            break
+
+                # datetimes.append(bballoon.state.date_time.timestamp())
+                # datetimes1.append(gballoon.state.date_time)
+
+                # action = plan[t]
+
+                wind_vector = jnp.array([1.0, 0.0])  # Constant wind to the east
+                
+                jax_balloon = jax_balloon.simulate_step_continuous(wind_vector, jax_atmopshere, action, time_delta, stride)
+                # jax_balloon = jax_balloon.simulate_step(wind_vector, jax_atmopshere, action, time_delta, stride)
+
+                try:
+                    google_balloon.simulate_step(
+                        WindVector(units.Velocity(mps=1.0), units.Velocity(mps=0.0)), 
+                        atmosphere, 
+                        action, 
+                        dt.timedelta(seconds=time_delta), 
+                        dt.timedelta(seconds=stride))
+                except AssertionError as e:
+                    print(f'Seed={seed}: {e}')
+                    break
+                
+                # Compares the datetime of the two balloons
+                # print(f"GBalloon: {gballoon.state.date_time}, Balloon: {bballoon.state.date_time.timestamp()}")
+
+                jax_pressures.append(jax_balloon.state.pressure)
+                jax_altitudes.append(jax_atmopshere.at_pressure(jax_pressures[-1]).height.km)
+
+                google_pressures.append(google_balloon.state.pressure)
+                google_altitudes.append(atmosphere.at_pressure(google_pressures[-1]).height.km)
 
         # Plot results
+        
         plt.figure(figsize=(12, 5))
-        # plt.subplot(1, 2, 1)
-        # plt.plot(range(time_steps), pressures1)
-        plt.plot(range(time_steps), altitudes1)
-        # plt.title("Balloon Pressure Over Time")
-        # plt.title("balloon.Balloon")
-        # plt.xlabel("Time (s)")
-        # plt.ylabel("Pressure (Pa)")
-        # plt.ylabel("Altitude (km)")
+        plt.title(f'Seed {seed}')
 
-        # plt.subplot(1, 2, 2)
-        # plt.plot(range(time_steps), pressures)
-        plt.plot(range(time_steps), altitudes)
-        # plt.title("JaxBalloon")
-        plt.xlabel("Time (s)")
+        # Left plot: Google up balloon vs JAX up balloon
+        plt.subplot(1, 2, 1)
+        plt.plot(range(len(google_altitudes_table['up'])), google_altitudes_table['up'], label='Google Up Balloon')
+        plt.plot(range(len(jax_altitudes_table['up'])), jax_altitudes_table['up'], label='JAX Up Balloon')
+        plt.title("Google Up Balloon vs JAX Up Balloon")
+        plt.xlabel("Time Steps")
         plt.ylabel("Altitude (km)")
+        plt.legend()
+
+        # Right plot: Google up balloon vs JAX down balloon
+        plt.subplot(1, 2, 2)
+        plt.plot(range(len(google_altitudes_table['down'])), google_altitudes_table['down'], label='Google Down Balloon')
+        plt.plot(range(len(jax_altitudes_table['down'])), jax_altitudes_table['down'], label='JAX Down Balloon')
+        plt.title("Google Up Balloon vs JAX Down Balloon")
+        plt.xlabel("Time Steps")
+        plt.ylabel("Altitude (km)")
+        plt.legend()
 
         plt.tight_layout()
-        plt.show()
-
-    # plt.plot(range(time_steps), datetimes)
-    # plt.plot(range(time_steps), datetimes1)
-    # plt.show()
+        plt.savefig(f"diagnostics/initialization_fidelity/seed_{seed}.png")
 
 
 run_simulation()

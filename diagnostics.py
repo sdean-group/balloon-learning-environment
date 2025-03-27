@@ -7,23 +7,34 @@ import matplotlib.pyplot as plt
 #             # "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-no-noise-initializations-up-to-19km.json",
 #             "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-with-noise.json"]
 
-datapaths = ["diagnostics/MPC4Agent-1742765048740.json", "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-no-noise.json"]
+datapaths = [
+            "diagnostics/mpc4agent-replanned-no-noise.json",
+            "diagnostics/MPC4Agent-1743049127887.json",
+            "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-no-noise.json"]
 
 agent = 'mpc_agent'
 
 diagnostics = [ json.load(open(datapath, 'r')) for datapath in datapaths ]
 
-print('Seed | No Noise | With Noise | ∆')
+# print('Seed | No Noise | With Noise | ∆')
 for seed in diagnostics[0]:
     # noise_twr = diagnostics[0][seed]['rollout'][agent]['twr']
     # wind_twr = diagnostics[1][seed]['rollout'][agent]['twr']
 
-    noise_twr = diagnostics[0][seed]['twr']
-    wind_twr = diagnostics[1][seed]['twr']
+    for i, diag in enumerate(diagnostics):
+        if (diag[seed]['steps'] != 960):
+            print(f'seed {seed} ran out of power')
 
-    seed = int(seed)
-    digits = (int(np.log10(seed)) if seed != 0 else 0)
-    print(f"{seed}{' ' * (4 - digits)}| {noise_twr:0.3f}    | {wind_twr:0.3f}      | {noise_twr-wind_twr:0.3f}")
+    seed_int = int(seed)
+    digits = (int(np.log10(seed_int)) if seed_int != 0 else 0)
+    print(f"{seed_int}{' ' * (4 - digits)}", end="")
+
+
+    for i, diag in enumerate(diagnostics):
+        twr = diag[seed]['twr']
+        print(f"| {twr:0.3f}    ", end="")
+
+    print()
 
 # exit()
 
@@ -53,7 +64,7 @@ datapath = "diagnostics/MPC4Agent-1742761566816.json"
 datapath = "diagnostics/MPCAgent-1742762525802.json"
 datapath = "diagnostics/MPC4Agent-1742762127491.json"
 # datapath = "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-no-noise.json"
-datapath = "diagnostics/MPC4Agent-1742765048740.json"
+datapath = "diagnostics/MPC4Agent-1743049127887.json"
 agent = 'mpc4_agent'
 diagnostics = json.load(open(datapath, 'r'))
 
