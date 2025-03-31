@@ -156,7 +156,7 @@ def eval_agent(agent: base_agent.Agent,
 
   diagnostics = {}
   
-  def simulator_write_diagnostics(diagnostic, simulator_state: simulator_data.SimulatorState):
+  def simulator_write_diagnostics(diagnostic, simulator_state: simulator_data.SimulatorState, start=False):
     state = simulator_state.balloon_state
     if 'simulator' not in diagnostic:
       diagnostic['simulator'] = {'x':[],'y': [], 'z': [], 'wind':[], 'plan': [], 'power_soc': [], 'alt_safety': [], 'env_safety': [], 'power_safety': []}
@@ -164,13 +164,15 @@ def eval_agent(agent: base_agent.Agent,
     diagnostic['simulator']['x'].append(state.x.km)
     diagnostic['simulator']['y'].append(state.y.km)
     diagnostic['simulator']['z'].append(simulator_state.atmosphere.at_pressure(state.pressure).height.kilometers)
-    diagnostic['simulator']['plan'].append(state.last_command)
+    
+    if not start:
+      diagnostic['simulator']['plan'].append(state.last_command)
+
     diagnostic['simulator']['power_soc'].append(state.battery_soc)
     diagnostic['simulator']['alt_safety'].append(state.altitude_safety_layer.safety_triggered)
     diagnostic['simulator']['env_safety'].append(state.envelope_safety_layer.safety_triggered)
     diagnostic['simulator']['power_safety'].append(state.power_safety_layer._triggered)
 
-    # TODO: change to get_ground_truth
     wind_vector = simulator_state.wind_field.get_ground_truth(state.x, state.y, state.pressure, state.time_elapsed)
     diagnostic['simulator']['wind'].append([wind_vector.u.meters_per_second, wind_vector.v.meters_per_second])
 
@@ -193,7 +195,7 @@ def eval_agent(agent: base_agent.Agent,
     agent.write_diagnostics_start(observation, diagnostic)
     action = agent.begin_episode(observation)
     agent.write_diagnostics(diagnostic)
-    simulator_write_diagnostics(diagnostic, env.get_simulator_state())
+    simulator_write_diagnostics(diagnostic, env.get_simulator_state(), start=True)
 
     # Implement json debugging
 
