@@ -237,7 +237,7 @@ class MPC4Agent(agent.Agent):
             self.plan = sigmoid(self.plan)
             print(time.time() - b4, 's to get optimized plan')
         else:
-            self.plan = initial_plan
+            self.plan = sigmoid(initial_plan)
 
         self.i = 0
 
