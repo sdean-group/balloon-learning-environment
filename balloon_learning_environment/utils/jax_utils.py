@@ -6,6 +6,7 @@ from jax import lax
 import jax.numpy as jnp
 from typing import Tuple
 import datetime as dt
+import numpy as np
 import s2sphere as s2
 from jax.tree_util import register_pytree_node_class
 
@@ -801,21 +802,25 @@ _PRESSURE_RATIO_TO_POWER_INTERPOLATOR = RegularGridInterpolator(
     fill_value=None,  # Extrapolate
 )
 
-# Interpolator for pressure ratio and power to efficiency
-_PRESSURE_RATIO_POWER_TO_EFFICIENCY_INTERPOLATOR = RegularGridInterpolator(
-    (
-        jnp.linspace(1.05, 1.35, 13),  # Pressure ratio grid
-        jnp.linspace(100.0, 400.0, 4),  # Power grid
-    ),
-    jnp.array([
-        0.4, 0.4, 0.3, 0.2, 0.2, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000, 0.00000,
-        0.4, 0.3, 0.3, 0.30, 0.25, 0.23, 0.20, 0.15, 0.12, 0.10, 0.00000, 0.00000, 0.00000,
-        0.00000, 0.3, 0.25, 0.25, 0.25, 0.20, 0.20, 0.20, 0.2, 0.15, 0.13, 0.12, 0.11, 0.00000,
-        0.23, 0.23, 0.23, 0.23, 0.23, 0.20, 0.20, 0.20, 0.18, 0.16, 0.15, 0.13
-    ]).reshape(13, 4),  # Efficiency values reshaped to 2D grid
-    bounds_error=False,
-    fill_value=None,  # Extrapolate
-)
+
+# Define grids
+def get_interpolator():
+    first = jnp.linspace(1.05, 1.35, 13)
+    second = jnp.linspace(100.0,400.0, 4)
+    values = np.array([0.4, 0.4, 0.3, 0.2, 0.2, 0.00000, 0.00000, 0.00000, 0.00000,
+                    0.00000, 0.00000, 0.00000, 0.00000, 0.4, 0.3, 0.3, 0.30, 0.25,
+                    0.23, 0.20, 0.15, 0.12, 0.10, 0.00000, 0.00000, 0.00000,
+                    0.00000, 0.3, 0.25, 0.25, 0.25, 0.20, 0.20, 0.20, 0.2, 0.15,
+                    0.13, 0.12, 0.11, 0.00000, 0.23, 0.23, 0.23, 0.23, 0.23, 0.20,
+                    0.20, 0.20, 0.18, 0.16, 0.15, 0.13]).reshape(13, 4)
+
+    interpolator = RegularGridInterpolator(
+        (first, second),
+        values,)
+
+    return interpolator
+
+_PRESSURE_RATIO_POWER_TO_EFFICIENCY_INTERPOLATOR = get_interpolator()
 
 # Functions
 def get_most_efficient_power(pressure_ratio: float):
@@ -842,9 +847,9 @@ def get_fan_efficiency(pressure_ratio: float, power: float) -> float:
     Returns:
         Efficiency of the air flow.
     """
-    efficiency = _PRESSURE_RATIO_POWER_TO_EFFICIENCY_INTERPOLATOR(
-        jnp.array([[pressure_ratio, power]])
-    )
+    pressure_ratio = jnp.clip(pressure_ratio, 1.05, 1.35)
+    power = jnp.clip(power, 100.0, 400.0)
+    efficiency = _PRESSURE_RATIO_POWER_TO_EFFICIENCY_INTERPOLATOR(jnp.array([pressure_ratio, power]))
     return efficiency[0] # Extract scalar from single-element array
 
 
