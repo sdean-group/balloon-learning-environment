@@ -4,7 +4,7 @@ from balloon_learning_environment.env.balloon import control
 from balloon_learning_environment.agents import opd
 from balloon_learning_environment.agents.mpc_agent import DeterministicAltitudeModel, make_weather_balloon, make_plan
 from balloon_learning_environment.agents.mpc2_agent import JaxBalloon, JaxBalloonState
-from balloon_learning_environment.agents.mpc4_agent import jax_plan_cost, grad_descent_optimizer, get_initial_plans
+from balloon_learning_environment.agents.mpc4_agent import jax_plan_cost, grad_descent_optimizer, get_initial_plans, sigmoid
 # from balloon_learning_environment.env.balloon_arena import balloon_arena
 from balloon_learning_environment.env.generative_wind_field import generative_wind_field_factory
 from balloon_learning_environment.agents.mpc_agent import *
@@ -438,7 +438,76 @@ def test_mpc4_initialization():
         plt.savefig(f"diagnostics/initialization_fidelity/seed_{seed}.png")
 
 
-test_mpc4_initialization()
+# test_mpc4_initialization()
+
+def test_mpc4_initializations():
+    _start = time.time()
+
+    seed = 0
+    key = jax.random.PRNGKey(seed=seed)
+    # print('A', key)
+    key, arena_key = jax.random.split(key, 2)
+    # print('B', key, arena_key)
+    arena_key, atmosphere_key, time_key = jax.random.split(arena_key, 3)
+    # print('C', arena_key, atmosphere_key, time_key)
+
+    atmosphere = standard_atmosphere.Atmosphere(atmosphere_key)
+    start_date_time = sampling.sample_time(time_key)
+
+    # local_timezone = dt.datetime.utcnow().astimezone().tzinfo
+    # print('D', start_date_time, time_key, local_timezone)
+
+    balloon_state, arena_key = initialize_balloon(arena_key, start_date_time, atmosphere, return_key=True)
+
+    balloon_state: balloon.BalloonState = balloon_state
+    jax_balloon_state: JaxBalloonState = JaxBalloonState.from_ble_state(balloon_state)
+
+    google_balloon = balloon.Balloon(balloon_state)
+    jax_balloon = JaxBalloon(jax_balloon_state)
+
+    jax_atmosphere = atmosphere.to_jax_atmopshere()
+    jax_forecast = wind_forecast.to_jax_wind_field()
+
+    def get_altitude_km(jax_balloon):
+        return jax_atmosphere.at_pressure(jax_balloon.state.pressure).height.km
+
+    np.random.seed(seed=0)
+
+    print('Setup:', time.time() - _start)
+    _start = time.time()
+    
+    plans = sigmoid(get_initial_plans(jax_balloon, 500, jax_forecast, jax_atmosphere, 240, 3*60, 10))
+    
+    print('Generate initial plans:', time.time() - _start)
+    _start = time.time()
+
+    altitude_logs = []
+    for plan in plans:
+        test_balloon = jax_balloon
+        altitude_log = [get_altitude_km(test_balloon)]
+        for action in plan:
+            test_balloon = test_balloon.simulate_step_continuous(jnp.array([ 0.0, 0.0 ]), jax_atmosphere, action, 3*60, 10)
+            altitude_log.append(get_altitude_km(test_balloon))
+        altitude_logs.append(altitude_log)
+    
+    print('Simulate initial plans:', time.time() - _start)
+    _start = time.time()
+
+    end_altitudes = [ altitude_log[-1] for altitude_log in altitude_logs 
+                    #  if altitude_log[-1] <= get_altitude_km(jax_balloon)
+                     ]
+    plt.hist(end_altitudes)
+    plt.show()
+
+    for altitude_log in altitude_logs:
+        plt.plot(range(len(altitude_log)), altitude_log)
+    print('Plot everything:', time.time() - _start)
+    _start = time.time()
+    
+    plt.show()
+
+    
+test_mpc4_initializations()
 
 def test_mpc_initializations():
     # Balloon configuration
