@@ -27,7 +27,7 @@ def jax_balloon_cost(balloon: JaxBalloon):
 @partial(jax.jit, static_argnums=(-2, -1))
 def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: 'int, seconds', stride: 'int, seconds'):
     cost = 0.0
-    discount_factor = 0.99 # 1.00
+    # discount_factor = 0.99
 
     plan = sigmoid(plan)
     
@@ -38,7 +38,8 @@ def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmospher
         
         next_balloon = balloon.simulate_step_continuous(wind_vector, atmosphere, plan[i], time_delta, stride)
         
-        cost += (discount_factor**i) * jax_balloon_cost(next_balloon)
+        # cost += (discount_factor**i) * jax_balloon_cost(next_balloon)
+        cost += jax_balloon_cost(next_balloon)
 
         return next_balloon, cost
 
@@ -254,15 +255,20 @@ class MPC4Agent(agent.Agent):
             initial_plan =  opd.get_plan_from_opd_node(best_node, search_delta_time=search_delta_time, plan_delta_time=self.time_delta)
 
         elif initialization_type == 'best_altitude':
-            initial_plans = get_initial_plans(self.balloon, 500, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
+            initial_plans = get_initial_plans(self.balloon, 100, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
+            
             batched_cost = []
             for i in range(len(initial_plans)):
-                batched_cost.append(jax_plan_cost(jnp.array(initial_plans[i]), self.balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
-            initial_plan = initial_plans[np.argmin(batched_cost)]
+                batched_cost.append(jax_plan_cost(initial_plans[i], self.balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
+            
+            min_index_so_far = np.argmin(batched_cost)
+            min_value_so_far = batched_cost[min_index_so_far]
 
-            # print(np.min(batched_cost))
-            initial_plan = initial_plans[np.argmin(batched_cost)]
-            # print(time.time() - b4, 's to get minimum cost plan')
+            initial_plan = initial_plans[min_index_so_far]
+            if self.plan is not None and jax_plan_cost(self.plan, self.balloon, self.forecast, self.atmosphere, self.time_delta, self.stride) < min_value_so_far:
+                print('Using the previous optimized plan as initial plan')
+                initial_plan = self.plan
+
         elif initialization_type == 'random':
             initial_plan = np.random.uniform(-1.0, 1.0, size=(self.plan_steps, ))
         else:
@@ -308,7 +314,9 @@ class MPC4Agent(agent.Agent):
         else:
             N = min(len(self.plan), 23)
             if self.i>0 and self.i%N==0:
-                # self.plan = jnp.vstack((self.plan[N:], jax.random.uniform(self.key, (N, ))))
+                self.key, rng = jax.random.split(self.key, 2)
+                self.plan = jnp.hstack((self.plan[N:], jax.random.uniform(rng, (N, ))))
+                print(self.plan.shape)
                 return self.begin_episode(observation)
             else:
                 # print('not replanning')
@@ -372,6 +380,7 @@ class MPC4Agent(agent.Agent):
         self.i = 0
         self.steps_within_radius = 0
         self.balloon = None
+        self.plan = None
 
     def update_forecast(self, forecast: agent.WindField): 
         self.ble_forecast = forecast
