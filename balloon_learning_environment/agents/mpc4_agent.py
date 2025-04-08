@@ -320,7 +320,7 @@ class MPC4Agent(agent.Agent):
                 # self.plan_steps -= N
                 self.key, rng = jax.random.split(self.key, 2)
                 # self.plan = self.plan[N:]
-                self.plan = jnp.hstack((self.plan[N:], jax.random.uniform(rng, (N, ))))
+                self.plan = inverse_sigmoid(jnp.hstack((self.plan[N:], jax.random.uniform(rng, (N, ), minval=-0.3, maxval=0.3))))
                 print(self.plan.shape)
                 return self.begin_episode(observation)
             else:
