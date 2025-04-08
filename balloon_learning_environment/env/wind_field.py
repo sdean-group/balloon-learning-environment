@@ -150,9 +150,9 @@ class WindField(abc.ABC):
       A WindVector for the position in the WindField.
     """
     forecast = self.get_forecast(x, y, pressure, elapsed_time)
-    return forecast
-    # noise = self._noise_model.get_wind_noise(x, y, pressure, elapsed_time)
-    # return forecast.add(noise)
+    # return forecast
+    noise = self._noise_model.get_wind_noise(x, y, pressure, elapsed_time)
+    return forecast.add(noise)
 
 
 @gin.configurable(allowlist=[])

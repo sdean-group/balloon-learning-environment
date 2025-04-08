@@ -27,7 +27,7 @@ def jax_balloon_cost(balloon: JaxBalloon):
 @partial(jax.jit, static_argnums=(-2, -1))
 def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: 'int, seconds', stride: 'int, seconds'):
     cost = 0.0
-    # discount_factor = 0.99
+    discount_factor = 0.99
 
     plan = sigmoid(plan)
     
@@ -38,8 +38,8 @@ def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmospher
         
         next_balloon = balloon.simulate_step_continuous(wind_vector, atmosphere, plan[i], time_delta, stride)
         
-        # cost += (discount_factor**i) * jax_balloon_cost(next_balloon)
-        cost += jax_balloon_cost(next_balloon)
+        cost += (discount_factor**i) * jax_balloon_cost(next_balloon)
+        # cost += jax_balloon_cost(next_balloon)
 
         return next_balloon, cost
 
@@ -185,7 +185,9 @@ class MPC4Agent(agent.Agent):
         self.time_delta = 3*60
         self.stride = 10
 
+        # self.plan_steps = 960 + 23 
         self.plan_steps = 240 # (self.plan_time // self.time_delta) // 3
+        # self.N = self.plan_steps
 
         self.plan = None # jnp.full((self.plan_steps, ), fill_value=1.0/3.0)
         self.i = 0
@@ -312,9 +314,12 @@ class MPC4Agent(agent.Agent):
             action = self.plan[self.i]
             return action.item()
         else:
+            
             N = min(len(self.plan), 23)
             if self.i>0 and self.i%N==0:
+                # self.plan_steps -= N
                 self.key, rng = jax.random.split(self.key, 2)
+                # self.plan = self.plan[N:]
                 self.plan = jnp.hstack((self.plan[N:], jax.random.uniform(rng, (N, ))))
                 print(self.plan.shape)
                 return self.begin_episode(observation)
@@ -381,6 +386,7 @@ class MPC4Agent(agent.Agent):
         self.steps_within_radius = 0
         self.balloon = None
         self.plan = None
+        # self.plan_steps = 960 + 23
 
     def update_forecast(self, forecast: agent.WindField): 
         self.ble_forecast = forecast
