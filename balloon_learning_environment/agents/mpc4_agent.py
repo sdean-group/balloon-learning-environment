@@ -271,6 +271,11 @@ class MPC4Agent(agent.Agent):
                 print('Using the previous optimized plan as initial plan')
                 initial_plan = self.plan
 
+            coast = inverse_sigmoid(np.random.uniform(-0.2, 0.2, size=(self.plan_steps, )))
+            if jax_plan_cost(coast, self.balloon, self.forecast, self.atmosphere, self.time_delta, self.stride) < min_value_so_far:
+                print('Using the previous optimized plan as initial plan')
+                initial_plan = coast
+
         elif initialization_type == 'random':
             initial_plan = np.random.uniform(-1.0, 1.0, size=(self.plan_steps, ))
         else:
