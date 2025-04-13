@@ -19,6 +19,7 @@ import datetime as dt
 from balloon_learning_environment.env.balloon import control
 from balloon_learning_environment.env.balloon import solar
 from balloon_learning_environment.utils import units
+from typing import Any, Dict, Tuple, Union
 
 import s2sphere as s2
 
@@ -54,7 +55,7 @@ class PowerSafetyLayer():
 
   def get_action(
       self,
-      action: control.AltitudeControlCommand,
+      action: Union[control.AltitudeControlCommand, float],
       date_time: dt.datetime,
       nighttime_power_load: units.Power,
       battery_charge: units.Energy,
@@ -121,9 +122,13 @@ class PowerSafetyLayer():
     return action
   
   def get_paused_action(self,
-      action: control.AltitudeControlCommand) -> control.AltitudeControlCommand:
+      action: Union[control.AltitudeControlCommand, float]) -> Union[control.AltitudeControlCommand, float]:
     # Down uses more power than up or stay, so we cannot allow it.
     if action == control.AltitudeControlCommand.DOWN:
       self._triggered+=1
       return control.AltitudeControlCommand.STAY
+    elif isinstance(action, float):
+      if action < 0:
+        self._triggered+=1
+        return 0.0
     return action

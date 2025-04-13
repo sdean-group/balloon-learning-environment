@@ -307,13 +307,13 @@ class Balloon:
     # This is because ascending shouldn't be harmful to superpressure in most
     # situtations.
     effective_action = action
-    if using_discrete:
-      # NOTE: continuous actions don't have any safety layers implemented
-      if self.state.power_safety_layer_enabled:
+    if self.state.power_safety_layer_enabled:
         effective_action = self.state.power_safety_layer.get_action(
             effective_action, self.state.date_time,
             self.state.nighttime_power_load, self.state.battery_charge,
             self.state.battery_capacity)
+    if using_discrete:
+      # NOTE: continuous actions don't have any safety layers implemented
       effective_action = self.state.envelope_safety_layer.get_action(
           effective_action, self.state.superpressure)
       effective_action = self.state.altitude_safety_layer.get_action(

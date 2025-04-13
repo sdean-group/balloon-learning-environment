@@ -22,7 +22,13 @@ def sigmoid(x):
     return 2 / (1 + jnp.exp(-x)) - 1
 
 def jax_balloon_cost(balloon: JaxBalloon):
-    return (balloon.state.x/1000)**2 + (balloon.state.y/1000)**2
+    r_2 = (balloon.state.x/1000)**2 + (balloon.state.y/1000)**2
+    
+    soc = balloon.state.battery_charge / balloon.state.battery_capacity
+    
+    battery_cost = 50**2 * (1 -  (1 / (1 + jnp.exp(-100*(soc - 0.1)))))
+
+    return r_2 + battery_cost
 
 @partial(jax.jit, static_argnums=(-2, -1))
 def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: 'int, seconds', stride: 'int, seconds'):
@@ -36,7 +42,12 @@ def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmospher
 
         wind_vector = wind_field.get_forecast(balloon.state.x/1000, balloon.state.y/1000, balloon.state.pressure, balloon.state.time_elapsed)
         
-        next_balloon = balloon.simulate_step_continuous(wind_vector, atmosphere, plan[i], time_delta, stride)
+        action = jax.lax.cond(balloon.state.battery_charge/balloon.state.battery_capacity < 0.025,
+                     lambda op: 0.0,
+                     lambda op: op[0],
+                     operand=(plan[i],))
+
+        next_balloon = balloon.simulate_step_continuous(wind_vector, atmosphere, action, time_delta, stride)
         
         cost += (discount_factor**i) * jax_balloon_cost(next_balloon)
         # cost += jax_balloon_cost(next_balloon)
@@ -71,13 +82,13 @@ def jax_plan_reward_with_V_function(plan, balloon: JaxBalloon, wind_field: JaxWi
 def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, time_delta, stride):
     start_cost = jax_plan_cost(initial_plan, balloon, forecast, atmosphere, time_delta, stride)
     plan = initial_plan
-    for gradient_steps in range(500):
+    for gradient_steps in range(100):
         dplan = dcost_dplan(plan, balloon, forecast, atmosphere, time_delta, stride)
         if  np.isnan(dplan).any() or abs(jnp.linalg.norm(dplan)) < 1e-7:
             # print('Exiting early, |∂plan| =',abs(jnp.linalg.norm(dplan)))
             break
         # print("A", gradient_steps, abs(jnp.linalg.norm(dplan)))
-        plan -= 0.01 * dplan / jnp.linalg.norm(dplan)
+        plan -= dplan / jnp.linalg.norm(dplan)
 
     after_cost = jax_plan_cost(plan, balloon, forecast, atmosphere, time_delta, stride)
     print("GD", gradient_steps, f"∆cost = {after_cost} - {start_cost} = {after_cost - start_cost}")
@@ -273,7 +284,7 @@ class MPC4Agent(agent.Agent):
 
             coast = inverse_sigmoid(np.random.uniform(-0.2, 0.2, size=(self.plan_steps, )))
             if jax_plan_cost(coast, self.balloon, self.forecast, self.atmosphere, self.time_delta, self.stride) < min_value_so_far:
-                print('Using the previous optimized plan as initial plan')
+                print('Using the nothing plan as initial plan')
                 initial_plan = coast
 
         elif initialization_type == 'random':
