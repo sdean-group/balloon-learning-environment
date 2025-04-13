@@ -49,22 +49,11 @@ prior_results = {
     21: {"MPC": (673.90, 0.613), "Perciatelli44": (907.40, 0.922), "StationSeeker": (747.31, 0.704)},
     22: {"MPC": (852.31, 0.851), "Perciatelli44": (805.74, 0.784), "StationSeeker": (767.27, 0.713)},
 }
-# diagnostics/MPCAgent-1742156446638.json
-# diagnostics/MPCAgent-1742156748804.json
-# datapath = "diagnostics/MPCAgent-1742157269044.json"
-# datapath = "diagnostics/MPCAgent-1742158470954.json"
-# datapath = "diagnostics/MPCAgent-1742159194286.json"
-# datapath = "diagnostics/MPCAgent-1742160106991.json"
-# datapath = "diagnostics/MPCAgent-1742161918509.json"
-# datapath = "diagnostics/used_in_report/mpc4agent-no-replan-fixed-wind-field-no-wind-noise-240-steps.json"
-datapath = "diagnostics/used_in_report/mpcagent-no-replan-fixed-wind-field-no-wind-noise-240-steps.json"
-# datapath = "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-no-noise-initializations-up-to-19km.json"
-datapath = "diagnostics/MPC4Agent-1742759266647.json"
-datapath = "diagnostics/MPC4Agent-1742761566816.json"
-datapath = "diagnostics/MPCAgent-1742762525802.json"
-datapath = "diagnostics/MPC4Agent-1742762127491.json"
-# datapath = "diagnostics/used_in_report/mpcagent-replanned-fixed-wind-field-no-noise.json"
-datapath = "diagnostics/MPC4Agent-1743049127887.json"
+
+# datapath = "diagnostics/mpc4agent-no-replan-no-noise-240-steps.json"
+datapath = "diagnostics/mpc4agent-replanned-redistributed-initial-plans.json"
+# datapath = "diagnostics/MPC4Agent-1744395047575.json"
+# datapath = "diagnostics/MPC4Agent-1744395284688.json"
 agent = 'mpc4_agent'
 diagnostics = json.load(open(datapath, 'r'))
 
@@ -98,6 +87,8 @@ twrs = []
 #     print(f"seed={seed}, reward_score={reward_score:.5}, twr_score={twr_score:.3}, fidelity={fidelity}")
 
 for seed, result in diagnostics.items():
+    # print(seed)
+    # if seed != "11": continue
     if False:
         agent_x = np.array(result['rollout'][agent]['x'])
         agent_y = np.array(result['rollout'][agent]['y'])
@@ -178,15 +169,6 @@ for seed, result in diagnostics.items():
 
     fidelity = np.linalg.norm(agent_z - simulation_z)
     seed = result['seed']
-    perciatelli_result = prior_results[seed]['Perciatelli44']
-
-    twr_score = result['twr']/perciatelli_result[1]# if perciatelli_result['twr'] != 0 else 1.0
-    #if perciatelli_result['twr'] ==0: continue
-        # print(result['twr'], perciatelli_result['twr'])
-    reward_score = result['reward']/perciatelli_result[0]
-    
-    fidelities.append(fidelity)
-    twrs.append(twr_score)
 
     if agent == 'mpc_agent':
         mpc_agent_plan = np.insert(mpc_agent_plan, 0, mpc_agent_plan[0])
@@ -205,14 +187,3 @@ for seed, result in diagnostics.items():
 
     # print(f"seed={seed}, reward_score={reward_score:.5}, twr_score={twr_score:.3}, fidelity={fidelity}")
 
-
-
-
-fidelities = np.array(fidelities)
-twrs = np.array(twrs)
-
-indices = np.argsort(fidelities)
-plt.scatter(fidelities[indices], twrs[indices])
-plt.plot([0,100], [1,1], 'r')
-plt.yticks(np.linspace(0,10,20))
-plt.show()
