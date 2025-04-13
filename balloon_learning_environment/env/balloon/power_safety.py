@@ -122,8 +122,8 @@ class PowerSafetyLayer():
   
   def get_paused_action(self,
       action: control.AltitudeControlCommand) -> control.AltitudeControlCommand:
-    self._triggered+=1
     # Down uses more power than up or stay, so we cannot allow it.
     if action == control.AltitudeControlCommand.DOWN:
+      self._triggered+=1
       return control.AltitudeControlCommand.STAY
     return action

@@ -260,6 +260,7 @@ class JaxBalloon:
             return balloon._simulate_step_continuous_internal(wind_vector, atmosphere, acs_control, stride), None
 
         num_steps = time_delta // stride
+        stride *= 1.0
         # jax.debug.print("num_steps={x}, time_delta={y}, stride={z}", x=num_steps, y=time_delta, z=stride)
         final_balloon, _ = jax.lax.scan(update_step, init=self, xs=jnp.arange(num_steps))
 
@@ -643,6 +644,7 @@ class JaxBalloon:
 
         # This must be updated in the inner loop, since the safety layer and
         # solar calculations rely on the current time.
+
         new_state.date_time = state.date_time + stride
         new_state.time_elapsed = state.time_elapsed + stride
 

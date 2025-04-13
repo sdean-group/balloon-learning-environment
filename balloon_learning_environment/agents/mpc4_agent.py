@@ -1,4 +1,5 @@
 import jax.scipy.optimize
+import scipy.interpolate
 import scipy.optimize
 from balloon_learning_environment.agents import agent, opd
 from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
@@ -26,7 +27,7 @@ def jax_balloon_cost(balloon: JaxBalloon):
 @partial(jax.jit, static_argnums=(-2, -1))
 def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: 'int, seconds', stride: 'int, seconds'):
     cost = 0.0
-    discount_factor = 0.99 # 1.00
+    discount_factor = 0.99
 
     plan = sigmoid(plan)
     
@@ -38,6 +39,7 @@ def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmospher
         next_balloon = balloon.simulate_step_continuous(wind_vector, atmosphere, plan[i], time_delta, stride)
         
         cost += (discount_factor**i) * jax_balloon_cost(next_balloon)
+        # cost += jax_balloon_cost(next_balloon)
 
         return next_balloon, cost
 
@@ -83,41 +85,86 @@ def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosph
 
 np.random.seed(seed=42)
 def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, atmosphere: JaxAtmosphere, plan_steps, time_delta, stride):
+    # flight_record = [(atmosphere.at_pressure(balloon.state.pressure).height.km, 0)]
+    flight_record = {atmosphere.at_pressure(balloon.state.pressure).height.km.item(): 0}
+
+    # flight_record_up = [(atmosphere.at_pressure(balloon.state.pressure).height.km, 0)]
+    # flight_record_down = []
+
     time_to_top = 0
     max_km_to_explore = 19.1
-    # print('a')
+
     up_balloon = balloon
     while time_to_top < plan_steps and atmosphere.at_pressure(up_balloon.state.pressure).height.km < max_km_to_explore:
         wind_vector = forecast.get_forecast(up_balloon.state.x/1000, up_balloon.state.y/1000, up_balloon.state.pressure, up_balloon.state.time_elapsed)
-        up_balloon = up_balloon.simulate_step_continuous(wind_vector, atmosphere, 1.0, time_delta, stride)
+        up_balloon = up_balloon.simulate_step_continuous(wind_vector, atmosphere, 0.99, time_delta, stride)
         time_to_top += 1
 
+        flight_record[atmosphere.at_pressure(up_balloon.state.pressure).height.km.item()] = time_to_top
+
     time_to_bottom = 0
-    min_km_to_explore = 14.0# max(12.0, atmosphere.at_pressure(balloon.state.pressure).height.km - 2.0) # descending is harder
+    min_km_to_explore = 15.4
     # print('b')
     down_balloon = balloon
     while time_to_bottom < plan_steps and atmosphere.at_pressure(down_balloon.state.pressure).height.km > min_km_to_explore:
         wind_vector = forecast.get_forecast(down_balloon.state.x/1000, down_balloon.state.y/1000, down_balloon.state.pressure, down_balloon.state.time_elapsed)
-        down_balloon = down_balloon.simulate_step_continuous(wind_vector, atmosphere, -1.0, time_delta, time_delta)
+        down_balloon = down_balloon.simulate_step_continuous(wind_vector, atmosphere, -0.99, time_delta, time_delta)
         time_to_bottom += 1
+
+        flight_record[atmosphere.at_pressure(down_balloon.state.pressure).height.km.item()] = time_to_bottom
+    
+    # sorted (should be)
+    # flight_record = flight_record_down[::-1] + flight_record_up
+
+    # Sort the dictionary by keys (altitudes) and split them into two separate lists
+    sorted_flight_record = sorted(flight_record.items())
+
+    flight_record_altitudes = [altitude for altitude, _ in sorted_flight_record]
+    flight_record_steps = [steps for _, steps in sorted_flight_record]
+
+    # print(len(flight_record_altitudes))
+    # print(len(flight_record_steps))
+    
+    interpolator = scipy.interpolate.RegularGridInterpolator((flight_record_altitudes, ), flight_record_steps, bounds_error=False, fill_value=None)
+
     # print('c')
 
     plans = []
 
-    for i in range(num_plans//2):
-        up_plan = np.zeros((plan_steps, ))
-        up_time = np.random.randint(0, max(1, time_to_top))
-        up_plan[:up_time] = 0.99
-        up_plan[up_time:] += np.random.uniform(-0.3, 0.3, plan_steps - up_time)
+    for i in range(num_plans):
+        random_height = np.random.uniform(15.4, 19.1)
+        going_up = random_height >= atmosphere.at_pressure(balloon.state.pressure).height.km
+        steps = int(round(interpolator(np.array([random_height]))[0]))
+        # print(steps)
 
-        plans.append(up_plan)
+        plan = np.zeros((plan_steps, ))
+        plan[:steps] = +0.99 if going_up else -0.99 
+        # print(random_height, steps)
+        try:
+            if steps < plan_steps:
+                plan[steps:] += np.random.uniform(-0.3, 0.3, plan_steps - steps)
+        except:
+            print(atmosphere.at_pressure(balloon.state.pressure).height.km.item(), random_height, steps, plan_steps)
 
-        down_plan = np.zeros((plan_steps, ))
-        down_time = np.random.randint(0, max(1, time_to_bottom))
-        down_plan[:down_time] = -0.99
-        down_plan[down_time:] += np.random.uniform(-0.3, 0.3, plan_steps - down_time)
+        plans.append(plan)
 
-        plans.append(down_plan)
+        # random_height = np.random.uniform(15.4, 19.1)
+        # going_up = random_height >= atmosphere.at_pressure(balloon.state.pressure).height.km
+
+        # if going_up:
+        #     up_plan = np.zeros((plan_steps, ))
+        #     up_time = np.random.randint(0, max(1, time_to_top))
+        #     up_plan[:up_time] = 0.99
+        #     # up_plan[up_time:] += np.random.uniform(-0.3, 0.3, plan_steps - up_time)
+
+        #     plans.append(up_plan)
+        # else:
+        #     down_plan = np.zeros((plan_steps, ))
+        #     down_time = np.random.randint(0, max(1, time_to_bottom))
+        #     down_plan[:down_time] = -0.99
+        #     # down_plan[down_time:] += np.random.uniform(-0.3, 0.3, plan_steps - down_time)
+
+        #     plans.append(down_plan)
     
     # print('d')
     
@@ -138,7 +185,9 @@ class MPC4Agent(agent.Agent):
         self.time_delta = 3*60
         self.stride = 10
 
-        self.plan_steps = (self.plan_time // self.time_delta) # // 3
+        # self.plan_steps = 960 + 23 
+        self.plan_steps = 240 # (self.plan_time // self.time_delta) // 3
+        # self.N = self.plan_steps
 
         self.plan = None # jnp.full((self.plan_steps, ), fill_value=1.0/3.0)
         self.i = 0
@@ -182,9 +231,9 @@ class MPC4Agent(agent.Agent):
         # balloon = JaxBalloon(jax_balloon_state_from_observation(observation))
 
         observation: JaxBalloonState = observation
-        if self.balloon is not None:
-            observation.x = self.balloon.state.x
-            observation.y = self.balloon.state.y
+        # if self.balloon is not None:
+        #     observation.x = self.balloon.state.x
+        #     observation.y = self.balloon.state.y
         self.balloon = JaxBalloon(observation)
 
         # current_plan_cost = jax_plan_cost(self.plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
@@ -193,7 +242,8 @@ class MPC4Agent(agent.Agent):
 
         # TODO: is it necessary to pass in forecast when just trying to get to a height?
         
-        initialization_type = 'random'
+        initialization_type = 'best_altitude'
+        print('USING ' + initialization_type + ' INITIALIZATION')
 
         if initialization_type == 'opd':
             start = opd.ExplorerState(
@@ -207,15 +257,25 @@ class MPC4Agent(agent.Agent):
             initial_plan =  opd.get_plan_from_opd_node(best_node, search_delta_time=search_delta_time, plan_delta_time=self.time_delta)
 
         elif initialization_type == 'best_altitude':
-            initial_plans = get_initial_plans(self.balloon, 500, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
+            initial_plans = get_initial_plans(self.balloon, 100, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
+            
             batched_cost = []
             for i in range(len(initial_plans)):
-                batched_cost.append(jax_plan_cost(jnp.array(initial_plans[i]), self.balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
-            initial_plan = initial_plans[np.argmin(batched_cost)]
+                batched_cost.append(jax_plan_cost(initial_plans[i], self.balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
+            
+            min_index_so_far = np.argmin(batched_cost)
+            min_value_so_far = batched_cost[min_index_so_far]
 
-            # print(np.min(batched_cost))
-            initial_plan = initial_plans[np.argmin(batched_cost)]
-            print(time.time() - b4, 's to get minimum cost plan')
+            initial_plan = initial_plans[min_index_so_far]
+            if self.plan is not None and jax_plan_cost(self.plan, self.balloon, self.forecast, self.atmosphere, self.time_delta, self.stride) < min_value_so_far:
+                print('Using the previous optimized plan as initial plan')
+                initial_plan = self.plan
+
+            coast = inverse_sigmoid(np.random.uniform(-0.2, 0.2, size=(self.plan_steps, )))
+            if jax_plan_cost(coast, self.balloon, self.forecast, self.atmosphere, self.time_delta, self.stride) < min_value_so_far:
+                print('Using the previous optimized plan as initial plan')
+                initial_plan = coast
+
         elif initialization_type == 'random':
             initial_plan = np.random.uniform(-1.0, 1.0, size=(self.plan_steps, ))
         else:
@@ -235,6 +295,8 @@ class MPC4Agent(agent.Agent):
             print(time.time() - b4, 's to get optimized plan')
             self.plan = sigmoid(self.plan)
             print(time.time() - b4, 's to get optimized plan')
+        else:
+            self.plan = sigmoid(initial_plan)
 
         self.i = 0
 
@@ -253,25 +315,53 @@ class MPC4Agent(agent.Agent):
         # self._deadreckon()
         # print(observation.battery_charge/observation.battery_capacity)
         if not REPLANNING:
+            self._deadreckon()
             action = self.plan[self.i]
             return action.item()
         else:
+            
             N = min(len(self.plan), 23)
             if self.i>0 and self.i%N==0:
-                # self.plan = jnp.vstack((self.plan[N:], jax.random.uniform(self.key, (N, ))))
+                # self.plan_steps -= N
+                self.key, rng = jax.random.split(self.key, 2)
+                # self.plan = self.plan[N:]
+                self.plan = inverse_sigmoid(jnp.hstack((self.plan[N:], jax.random.uniform(rng, (N, ), minval=-0.3, maxval=0.3))))
+                print(self.plan.shape)
                 return self.begin_episode(observation)
             else:
-                print('not replanning')
+                # print('not replanning')
+                self._deadreckon()
                 action = self.plan[self.i]
                 # print('action', action)
                 return action.item()
+            
+    def write_diagnostics_start(self, observation, diagnostics):
+        if 'mpc4_agent' not in diagnostics:
+            diagnostics['mpc4_agent'] = {'x': [], 'y': [], 'z':[], 'wind':[], 'plan':[]}
+
+        observation: JaxBalloonState = observation
+        balloon = JaxBalloon(observation)
+        
+        height = self.atmosphere.at_pressure(balloon.state.pressure).height.km.item()
+
+        diagnostics['mpc4_agent']['x'].append(balloon.state.x/1000)
+        diagnostics['mpc4_agent']['y'].append(balloon.state.y/1000)
+        diagnostics['mpc4_agent']['z'].append(height)
+        # diagnostics['mpc4_agent']['plan'].append(0.0)
+
+        wind_vector = self.forecast.get_forecast(
+            balloon.state.x/1000, 
+            balloon.state.y/1000, 
+            balloon.state.pressure, 
+            balloon.state.time_elapsed)
+        diagnostics['mpc4_agent']['wind'].append([wind_vector[0].item(), wind_vector[1].item()])
+
     
     def write_diagnostics(self, diagnostics):
         if 'mpc4_agent' not in diagnostics:
             diagnostics['mpc4_agent'] = {'x': [], 'y': [], 'z':[], 'wind':[], 'plan':[]}
         
         height = self.atmosphere.at_pressure(self.balloon.state.pressure).height.km.item()
-        # height = self.ble_atmosphere.at_pressure(self.balloon.state.pressure).height.km.item()
 
         diagnostics['mpc4_agent']['x'].append(self.balloon.state.x.item()/1000)
         diagnostics['mpc4_agent']['y'].append(self.balloon.state.y.item()/1000)
@@ -300,6 +390,8 @@ class MPC4Agent(agent.Agent):
         self.i = 0
         self.steps_within_radius = 0
         self.balloon = None
+        self.plan = None
+        # self.plan_steps = 960 + 23
 
     def update_forecast(self, forecast: agent.WindField): 
         self.ble_forecast = forecast

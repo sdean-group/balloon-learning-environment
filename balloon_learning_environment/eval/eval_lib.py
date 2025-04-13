@@ -156,17 +156,23 @@ def eval_agent(agent: base_agent.Agent,
 
   diagnostics = {}
   
-  def simulator_write_diagnostics(diagnostic, simulator_state: simulator_data.SimulatorState):
+  def simulator_write_diagnostics(diagnostic, simulator_state: simulator_data.SimulatorState, start=False):
     state = simulator_state.balloon_state
     if 'simulator' not in diagnostic:
-      diagnostic['simulator'] = {'x':[],'y': [], 'z': [], 'wind':[], 'plan': []}
+      diagnostic['simulator'] = {'x':[],'y': [], 'z': [], 'wind':[], 'plan': [], 'power_soc': [], 'alt_safety': [], 'env_safety': [], 'power_safety': []}
     
     diagnostic['simulator']['x'].append(state.x.km)
     diagnostic['simulator']['y'].append(state.y.km)
     diagnostic['simulator']['z'].append(simulator_state.atmosphere.at_pressure(state.pressure).height.kilometers)
-    diagnostic['simulator']['plan'].append(state.last_command)
+    
+    if not start:
+      diagnostic['simulator']['plan'].append(state.last_command)
 
-    # TODO: change to get_ground_truth
+    diagnostic['simulator']['power_soc'].append(state.battery_soc)
+    diagnostic['simulator']['alt_safety'].append(state.altitude_safety_layer.safety_triggered)
+    diagnostic['simulator']['env_safety'].append(state.envelope_safety_layer.safety_triggered)
+    diagnostic['simulator']['power_safety'].append(state.power_safety_layer._triggered)
+
     wind_vector = simulator_state.wind_field.get_ground_truth(state.x, state.y, state.pressure, state.time_elapsed)
     diagnostic['simulator']['wind'].append([wind_vector.u.meters_per_second, wind_vector.v.meters_per_second])
 
@@ -186,9 +192,10 @@ def eval_agent(agent: base_agent.Agent,
     observation = env.reset()
     agent.update_forecast(env.get_wind_forecast())
     agent.update_atmosphere(env.get_atmosphere())
+    agent.write_diagnostics_start(observation, diagnostic)
     action = agent.begin_episode(observation)
     agent.write_diagnostics(diagnostic)
-    simulator_write_diagnostics(diagnostic, env.get_simulator_state())
+    simulator_write_diagnostics(diagnostic, env.get_simulator_state(), start=True)
 
     # Implement json debugging
 
@@ -227,6 +234,9 @@ def eval_agent(agent: base_agent.Agent,
 
     twr = steps_within_radius / step_count
     agent.write_diagnostics_end(diagnostic)
+    simulator_write_diagnostics(diagnostic, env.get_simulator_state())
+
+    # 
     diagnostics[seed]={'seed': seed, 'twr': twr, 'reward': total_reward, 'steps': step_count, 'rollout': diagnostic}
     
     agent.end_episode(reward, is_done)
@@ -249,6 +259,10 @@ def eval_agent(agent: base_agent.Agent,
                  seed,
                  eval_result)
     logging.info('Power safety layer violations: %d', env.arena.get_balloon_state().power_safety_layer._triggered)
+    logging.info('Altitude safety layer violations: %d', env.arena.get_balloon_state().altitude_safety_layer.safety_triggered)
+    logging.info('Envelope safety layer violations: %d', env.arena.get_balloon_state().envelope_safety_layer.safety_triggered)
+    
+    
     results.append(eval_result)
 
   datafile = f'diagnostics/{type(agent).__name__}-{int(dt.datetime.now().timestamp()*1000)}.json'
