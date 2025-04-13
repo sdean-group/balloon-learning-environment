@@ -71,13 +71,13 @@ def jax_plan_reward_with_V_function(plan, balloon: JaxBalloon, wind_field: JaxWi
 def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, time_delta, stride):
     start_cost = jax_plan_cost(initial_plan, balloon, forecast, atmosphere, time_delta, stride)
     plan = initial_plan
-    for gradient_steps in range(100):
+    for gradient_steps in range(500):
         dplan = dcost_dplan(plan, balloon, forecast, atmosphere, time_delta, stride)
         if  np.isnan(dplan).any() or abs(jnp.linalg.norm(dplan)) < 1e-7:
             # print('Exiting early, |∂plan| =',abs(jnp.linalg.norm(dplan)))
             break
         # print("A", gradient_steps, abs(jnp.linalg.norm(dplan)))
-        plan -= dplan / jnp.linalg.norm(dplan)
+        plan -= 0.01 * dplan / jnp.linalg.norm(dplan)
 
     after_cost = jax_plan_cost(plan, balloon, forecast, atmosphere, time_delta, stride)
     print("GD", gradient_steps, f"∆cost = {after_cost} - {start_cost} = {after_cost - start_cost}")
