@@ -43,7 +43,7 @@ _eval_suites['tiny_eval'] = EvaluationSuite(list(range(10)), 960)
 _eval_suites['micro_eval'] = EvaluationSuite([0], 960)
 _eval_suites['our_eval'] = EvaluationSuite([2, 5, 8], 960)
 _eval_suites['new_eval'] = EvaluationSuite([0, 2, 3, 4, 5, 8, 20, 21, 22], 960)
-_eval_suites['newer_eval'] = EvaluationSuite(list(range(25)), 960)
+_eval_suites['newer_eval'] = EvaluationSuite(list(range(50)), 960)
 
 _eval_suites['micro_eval_short'] = EvaluationSuite([0], 240)
 _eval_suites['new_eval_short'] = EvaluationSuite([0, 2, 3, 4, 5, 8, 20, 21, 22], 240)
