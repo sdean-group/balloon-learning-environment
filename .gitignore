@@ -6,8 +6,13 @@
 
 build/
 
+q_training/
+
 *.err
 *.out
+get_fan_efficiency_interpolator.py
+diagnose_balloon_divergence.py
+diagnose_optimizer.py
 submission_files/
 
 balloon_learning_environment/colab/.ipynb_checkpoints/
@@ -19,5 +24,6 @@ balloon_learning_environment/colab/.ipynb_checkpoints/
 eval/
 
 *.json
+diagnostics/*
 
 try_dynamics_rewrite.py

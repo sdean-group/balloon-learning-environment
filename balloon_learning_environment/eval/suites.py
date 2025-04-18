@@ -50,6 +50,11 @@ _eval_suites['dies'] = EvaluationSuite([4, 11, 19, 39], 960)
 _eval_suites['micro_eval_short'] = EvaluationSuite([0], 240)
 _eval_suites['new_eval_short'] = EvaluationSuite([0, 2, 3, 4, 5, 8, 20, 21, 22], 240)
 
+_eval_suites['small_training_data'] = EvaluationSuite(list(range(10_000, 10_100)), 960)
+_eval_suites['small_validation_data'] = EvaluationSuite(list(range(11_000, 11_010)), 960)
+_eval_suites['training_data'] = EvaluationSuite(list(range(10_000, 11_000)), 960)
+_eval_suites['validation_data'] = EvaluationSuite(list(range(11_000, 11_250)), 960)
+
 all_strata = []
 for strata in ['hardest', 'hard', 'mid', 'easy', 'easiest']:
   _eval_suites[f'{strata}_strata'] = EvaluationSuite(

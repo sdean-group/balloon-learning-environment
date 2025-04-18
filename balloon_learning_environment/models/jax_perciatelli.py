@@ -116,9 +116,9 @@ def write_weights(sess, path='perciatelli_weights'):
 
     np.save(path, weights, allow_pickle=True)
 
-def get_perciatelli_params_network(batch_size=1, path='perciatelli_weights.npy'):
+def get_perciatelli_params_network(path='perciatelli_weights.npy'):
     rng = jax.random.PRNGKey(0)
-    dummy_input = jnp.ones((batch_size, 1099))  # Example observation batch of size 1
+    dummy_input = jnp.ones((1, 1099))  # Example observation batch of size 1
     perciatelli_network = Perciatelli44Network()
     
     # Initialize the model parameters
