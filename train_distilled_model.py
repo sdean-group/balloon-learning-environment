@@ -4,7 +4,9 @@ from flax import linen as nn
 from flax.training import train_state
 import optax
 import numpy as np
+from balloon_learning_environment.agents.perciatelli44 import get_distilled_model_features
 from balloon_learning_environment.models.jax_perciatelli import DistilledNetwork, get_distilled_model_input_size
+from balloon_learning_environment.models.jax_perciatelli import get_perciatelli_params_network
 import pickle
 
 def create_train_state(rng, model, learning_rate, input_shape):
@@ -104,14 +106,21 @@ if __name__ == "__main__":
             pickle.dump(distilled_params, f)
     else:
         # Load the distilled model parameters
-        with open('q_training/distilled_model_params.pkl', 'rb') as f:
-            distilled_params = pickle.load(f)
         
         # Initialize the distilled model
         distilled_model = DistilledNetwork()
 
-        rng = jax.random.PRNGKey(0)
-        dummy_input = jnp.ones((1, get_distilled_model_input_size(num_wind_levels)))
-        distilled_params = distilled_model.init(rng, dummy_input)
+        dummy_input = jax.random.uniform(jax.random.PRNGKey(seed=0), (1, get_distilled_model_input_size(num_wind_levels)))
+        with open('q_training/distilled_model_params.pkl', 'rb') as f:
+            distilled_params = pickle.load(f)
 
-        print(distilled_model.apply(distilled_params, dummy_input)[0].shape)
+        print(distilled_params.keys())
+        print(distilled_params['params'].keys())
+        print(distilled_params['params']['Dense_0']['kernel'].shape)
+        print(distilled_params['params']['Dense_0']['bias'].shape)
+        print(distilled_params['params']['Dense_1']['kernel'].shape) 
+        print(distilled_params['params']['Dense_1']['bias'].shape)
+        print(distilled_params['params']['Dense_6']['kernel'].shape)
+        print(distilled_params['params']['Dense_6']['bias'].shape)
+
+        # print(dummy_input, distilled_model.apply(distilled_params, dummy_input))

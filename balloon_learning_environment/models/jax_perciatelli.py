@@ -118,14 +118,10 @@ def write_weights(sess, path='perciatelli_weights'):
     np.save(path, weights, allow_pickle=True)
 
 def get_perciatelli_params_network(path='perciatelli_weights.npy'):
-    rng = jax.random.PRNGKey(0)
-    dummy_input = jnp.ones((1, 1099))  # Example observation batch of size 1
     perciatelli_network = Perciatelli44Network()
     
-    # Initialize the model parameters
-    jax_params = perciatelli_network.init(rng, dummy_input)
     # Load pretrained weights (ensure "perciatelli_weights.npz" contains the correct TF variable names)
-    jax_params = load_pretrained_params(path, jax_params)
+    jax_params = load_pretrained_params(path, perciatelli_network.init(jax.random.PRNGKey(0), jnp.ones((1, 1099))))
 
     return jax_params, perciatelli_network
 
@@ -146,10 +142,6 @@ def get_distilled_model_input_size(num_wind_levels):
     return 4 + 3 * num_wind_levels
 
 def get_distilled_perciatelli(num_wind_levels, path='q_training/distilled_model_params-1200.pkl'):
-    # Load the distilled model parameters
-    with open(path, 'rb') as f:
-        distilled_params = pickle.load(f)
-    
     # Initialize the distilled model
     distilled_model = DistilledNetwork()
 
@@ -172,11 +164,15 @@ if __name__ == "__main__":
     print(q_values) # Should see "[[127.65921 132.6324  131.29575]]"
 
     # Is jax-able
-    reward_fn = lambda x: jnp.sum(get_q_values(model.apply(params, x)))
-    grad_fn = jax.jit(jax.grad(reward_fn))
+    def reward_fn(x, params): 
+        model = Perciatelli44Network()
+        return jnp.sum(get_q_values(model.apply(params, x)))
 
-    print(reward_fn(x))
-    for i in range(10):
-        dx = grad_fn(x)
+    # reward_fn = lambda x, params: jnp.sum(get_q_values(model.apply(params, x)))
+    grad_fn = jax.jit(jax.grad(reward_fn, argnums=0))
+
+    print(reward_fn(x, params))
+    for i in range(100):
+        dx = grad_fn(x, params)
         x += dx/jnp.linalg.norm(dx)
-        print(reward_fn(x))
+        print(reward_fn(x, params))

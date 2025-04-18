@@ -5,6 +5,7 @@ from balloon_learning_environment.agents import agent, opd
 from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
 from balloon_learning_environment.env.wind_field import JaxWindField
 from balloon_learning_environment.utils import units
+from balloon_learning_environment.utils import constants
 from balloon_learning_environment.models import jax_perciatelli
 from balloon_learning_environment.env.balloon.standard_atmosphere import JaxAtmosphere
 import numpy as np
@@ -31,17 +32,86 @@ def jax_balloon_cost(balloon: JaxBalloon):
 
     return r_2 + battery_cost
 
-def jax_compute_terminal_cost(balloon: JaxBalloon, wind_field: JaxWindField, distilled_network: jax_perciatelli.DistilledNetwork, distilled_params):
-    feature_vector = jnp.array([])
-    
-    # TODO: construct feature vector
 
-    return jnp.sum(distilled_network.apply(distilled_params, feature_vector))
+class DistilledQFunction:
+    def __init__(self, num_wind_layers, 
+                #  distilled_network: jax_perciatelli.DistilledNetwork,
+                 distilled_params):
+        self.num_wind_layers = num_wind_layers
+        # self.distilled_network = distilled_network
+        self.distilled_params = distilled_params
+
+    def __call__(self, state):
+        model = jax_perciatelli.DistilledNetwork()
+        return model.apply(self.distilled_params, state)
+    
+    def get_input_size(self):
+        return jax_perciatelli.get_distilled_model_input_size(self.num_wind_layers)
+    
+    def tree_flatten(self): 
+        return (self.distilled_params, ), {'num_wind_layers': self.num_wind_layers}
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children): 
+        q_func = DistilledQFunction(aux_data['num_wind_layers'], children[0])
+        return q_func
+
+jax.tree_util.register_pytree_node_class(DistilledQFunction)
+
+class NoQFunction:
+    def __init__(self):
+        self.num_wind_layers = 0
+
+    def __call__(self, state):
+        return 0.0
+    
+    def tree_flatten(self):
+        return (), {}
+    
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return NoQFunction()
+    
+    def get_input_size(self):
+        return 4
+    
+jax.tree_util.register_pytree_node_class(NoQFunction)
+
+def jax_compute_terminal_cost(balloon: JaxBalloon, wind_forecast: JaxWindField, q_func: DistilledQFunction):
+    # TODO: restructure to put the CONSTRUCTION of the feature vector in the q function
+    feature_vector = jnp.zeros((q_func.get_input_size(),))
+
+    x_km = balloon.state.x/1000
+    y_km = balloon.state.y/1000
+
+    distance = jnp.sqrt(x_km**2 + y_km**2)
+    angle_heading_to_station = jnp.atan2(-x_km, -y_km)
+
+    feature_vector = feature_vector.at[0].set(balloon.state.pressure)
+    feature_vector = feature_vector.at[1].set(distance)
+    feature_vector = feature_vector.at[2].set(angle_heading_to_station)
+    feature_vector = feature_vector.at[3].set(balloon.state.battery_charge/balloon.state.battery_capacity)
+    
+    # Fill in wind values
+    pressure_levels = jnp.linspace(constants.PERCIATELLI_PRESSURE_RANGE_MIN,
+                                   constants.PERCIATELLI_PRESSURE_RANGE_MAX,
+                                   q_func.num_wind_layers)
+
+    def compute_wind_features(i, feature_vector):
+        wind_vector = wind_forecast.get_forecast(x_km, y_km, pressure_levels[i], balloon.state.time_elapsed)
+        feature_vector = feature_vector.at[4 + i * 3 + 0].set(jnp.sqrt(wind_vector[0]**2 + wind_vector[1]**2))
+        feature_vector = feature_vector.at[4 + i * 3 + 1].set(jnp.arctan2(wind_vector[1], wind_vector[0]))
+        feature_vector = feature_vector.at[4 + i * 3 + 2].set(pressure_levels[i])
+        return feature_vector
+
+    feature_vector = jax.lax.fori_loop(0, q_func.num_wind_layers, compute_wind_features, feature_vector)
+
+    return -jnp.sum(q_func(feature_vector))
 
 
 
 @partial(jax.jit, static_argnums=(-2, -1))
-def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: 'int, seconds', stride: 'int, seconds'):
+def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, q_func: DistilledQFunction, time_delta: 'int, seconds', stride: 'int, seconds'):
     cost = 0.0
     discount_factor = 0.99
 
@@ -64,43 +134,22 @@ def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmospher
 
         return next_balloon, cost
 
-    final_balloon, final_cost = jax.lax.fori_loop(0, len(plan), update_step, init_val=(balloon, cost))
-    return final_cost
+    final_balloon, cost = jax.lax.fori_loop(0, len(plan), update_step, init_val=(balloon, cost))
+    terminal_cost = jax_balloon_cost(final_balloon) + jax_compute_terminal_cost(final_balloon, wind_field, q_func) 
+    return cost + terminal_cost
 
-def jax_plan_reward(balloon: JaxBalloon):
-    dist_km = (balloon.state.x/1000)**2  + (balloon.state.y/1000)**2
-    shift = 50
-    return (-(dist_km * 4) + shift**2)/(shift**2)
-
-@partial(jax.jit, static_argnums=(-2, -1))
-def jax_plan_reward_with_V_function(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, v_function, time_delta: 'int, seconds', stride: 'int, seconds'):
-    reward = 0.0
-    discount_factor = 0.99
-
-    plan = sigmoid(plan)
-    def update_step(i, balloon_and_reward: tuple[JaxBalloon, float]):
-        balloon, reward = balloon_and_reward
-        wind_vector = wind_field.get_forecast(balloon.state.x/1000, balloon.state.y/1000, balloon.state.pressure, balloon.state.time_elapsed)
-        next_balloon = balloon.simulate_step_continuous(wind_vector, atmosphere, plan[i], time_delta, stride)
-        reward += (discount_factor**i) * jax_plan_reward(next_balloon)
-        return next_balloon, reward
-
-    final_balloon, final_cost = jax.lax.fori_loop(0, len(plan), update_step, init_val=(balloon, reward))
-    return final_cost
-
-
-def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, time_delta, stride):
-    start_cost = jax_plan_cost(initial_plan, balloon, forecast, atmosphere, time_delta, stride)
+def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, q_func, time_delta, stride):
+    start_cost = jax_plan_cost(initial_plan, balloon, forecast, atmosphere, q_func, time_delta, stride)
     plan = initial_plan
     for gradient_steps in range(100):
-        dplan = dcost_dplan(plan, balloon, forecast, atmosphere, time_delta, stride)
+        dplan = dcost_dplan(plan, balloon, forecast, atmosphere, q_func, time_delta, stride)
         if  np.isnan(dplan).any() or abs(jnp.linalg.norm(dplan)) < 1e-7:
             # print('Exiting early, |∂plan| =',abs(jnp.linalg.norm(dplan)))
             break
         # print("A", gradient_steps, abs(jnp.linalg.norm(dplan)))
         plan -= dplan / jnp.linalg.norm(dplan)
 
-    after_cost = jax_plan_cost(plan, balloon, forecast, atmosphere, time_delta, stride)
+    after_cost = jax_plan_cost(plan, balloon, forecast, atmosphere, q_func, time_delta, stride)
     print("GD", gradient_steps, f"∆cost = {after_cost} - {start_cost} = {after_cost - start_cost}")
     return plan
 
@@ -108,9 +157,6 @@ np.random.seed(seed=42)
 def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, atmosphere: JaxAtmosphere, plan_steps, time_delta, stride):
     # flight_record = [(atmosphere.at_pressure(balloon.state.pressure).height.km, 0)]
     flight_record = {atmosphere.at_pressure(balloon.state.pressure).height.km.item(): 0}
-
-    # flight_record_up = [(atmosphere.at_pressure(balloon.state.pressure).height.km, 0)]
-    # flight_record_down = []
 
     time_to_top = 0
     max_km_to_explore = 19.1
@@ -125,7 +171,7 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
 
     time_to_bottom = 0
     min_km_to_explore = 15.4
-    # print('b')
+
     down_balloon = balloon
     while time_to_bottom < plan_steps and atmosphere.at_pressure(down_balloon.state.pressure).height.km > min_km_to_explore:
         wind_vector = forecast.get_forecast(down_balloon.state.x/1000, down_balloon.state.y/1000, down_balloon.state.pressure, down_balloon.state.time_elapsed)
@@ -142,13 +188,8 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
 
     flight_record_altitudes = [altitude for altitude, _ in sorted_flight_record]
     flight_record_steps = [steps for _, steps in sorted_flight_record]
-
-    # print(len(flight_record_altitudes))
-    # print(len(flight_record_steps))
     
     interpolator = scipy.interpolate.RegularGridInterpolator((flight_record_altitudes, ), flight_record_steps, bounds_error=False, fill_value=None)
-
-    # print('c')
 
     plans = []
 
@@ -168,26 +209,6 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
             print(atmosphere.at_pressure(balloon.state.pressure).height.km.item(), random_height, steps, plan_steps)
 
         plans.append(plan)
-
-        # random_height = np.random.uniform(15.4, 19.1)
-        # going_up = random_height >= atmosphere.at_pressure(balloon.state.pressure).height.km
-
-        # if going_up:
-        #     up_plan = np.zeros((plan_steps, ))
-        #     up_time = np.random.randint(0, max(1, time_to_top))
-        #     up_plan[:up_time] = 0.99
-        #     # up_plan[up_time:] += np.random.uniform(-0.3, 0.3, plan_steps - up_time)
-
-        #     plans.append(up_plan)
-        # else:
-        #     down_plan = np.zeros((plan_steps, ))
-        #     down_time = np.random.randint(0, max(1, time_to_bottom))
-        #     down_plan[:down_time] = -0.99
-        #     # down_plan[down_time:] += np.random.uniform(-0.3, 0.3, plan_steps - down_time)
-
-        #     plans.append(down_plan)
-    
-    # print('d')
     
     return inverse_sigmoid(jnp.array(plans))
 
@@ -218,6 +239,10 @@ class MPC4Agent(agent.Agent):
         self.balloon = None
         self.time = None
         self.steps_within_radius = 0
+
+        self.num_wind_levels = 181
+        params = jax_perciatelli.get_distilled_perciatelli(self.num_wind_levels)[0]
+        self.q_func = DistilledQFunction(self.num_wind_levels, params)
 
     def _deadreckon(self):
         # wind_vector = self.ble_forecast.get_forecast(
@@ -282,18 +307,18 @@ class MPC4Agent(agent.Agent):
             
             batched_cost = []
             for i in range(len(initial_plans)):
-                batched_cost.append(jax_plan_cost(initial_plans[i], self.balloon, self.forecast, self.atmosphere, self.time_delta, self.stride))
+                batched_cost.append(jax_plan_cost(initial_plans[i], self.balloon, self.forecast, self.atmosphere, self.q_func, self.time_delta, self.stride))
             
             min_index_so_far = np.argmin(batched_cost)
             min_value_so_far = batched_cost[min_index_so_far]
 
             initial_plan = initial_plans[min_index_so_far]
-            if self.plan is not None and jax_plan_cost(self.plan, self.balloon, self.forecast, self.atmosphere, self.time_delta, self.stride) < min_value_so_far:
+            if self.plan is not None and jax_plan_cost(self.plan, self.balloon, self.forecast, self.atmosphere, self.q_func, self.time_delta, self.stride) < min_value_so_far:
                 print('Using the previous optimized plan as initial plan')
                 initial_plan = self.plan
 
             coast = inverse_sigmoid(np.random.uniform(-0.2, 0.2, size=(self.plan_steps, )))
-            if jax_plan_cost(coast, self.balloon, self.forecast, self.atmosphere, self.time_delta, self.stride) < min_value_so_far:
+            if jax_plan_cost(coast, self.balloon, self.forecast, self.atmosphere, self.q_func, self.time_delta, self.stride) < min_value_so_far:
                 print('Using the nothing plan as initial plan')
                 initial_plan = coast
 
@@ -311,6 +336,7 @@ class MPC4Agent(agent.Agent):
                 self.balloon, 
                 self.forecast, 
                 self.atmosphere,
+                self.q_func,
                 self.time_delta, 
                 self.stride)
             print(time.time() - b4, 's to get optimized plan')
