@@ -5,6 +5,7 @@ from balloon_learning_environment.agents import agent, opd
 from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
 from balloon_learning_environment.env.wind_field import JaxWindField
 from balloon_learning_environment.utils import units
+from balloon_learning_environment.models import jax_perciatelli
 from balloon_learning_environment.env.balloon.standard_atmosphere import JaxAtmosphere
 import numpy as np
 import jax
@@ -29,6 +30,15 @@ def jax_balloon_cost(balloon: JaxBalloon):
     battery_cost = 50**2 * (1 -  (1 / (1 + jnp.exp(-100*(soc - 0.1)))))
 
     return r_2 + battery_cost
+
+def jax_compute_terminal_cost(balloon: JaxBalloon, wind_field: JaxWindField, distilled_network: jax_perciatelli.DistilledNetwork, distilled_params):
+    feature_vector = jnp.array([])
+    
+    # TODO: construct feature vector
+
+    return jnp.sum(distilled_network.apply(distilled_params, feature_vector))
+
+
 
 @partial(jax.jit, static_argnums=(-2, -1))
 def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, time_delta: 'int, seconds', stride: 'int, seconds'):

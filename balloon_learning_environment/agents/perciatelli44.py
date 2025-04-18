@@ -73,29 +73,27 @@ class Perciatelli44(agent.Agent):
     observation = observation.reshape((1, 1099))
     q_vals = self._sess.run(self._q_vals,
                             feed_dict={self._observation: observation})
+    # print(q_vals)
     return np.argmax(q_vals).item()
 
   def step(self, reward: float, observation: np.ndarray) -> int:
     observation = observation.reshape((1, 1099))
     q_vals = self._sess.run(self._q_vals,
                             feed_dict={self._observation: observation})
+    # print(q_vals)
     return np.argmax(q_vals).item()
 
   def end_episode(self, reward: float, terminal: bool = True) -> None:
     pass
 
 def get_distilled_model_features(perciatelli_features: np.ndarray, wind_forecast: agent.WindField, elapsed_time: dt.timedelta) -> np.ndarray:
-  # TODO: need to have a good way to determine elapsed time, maybe change this to be a model that takes in the actual balloon state
-  # and contains two feature constructors internally: perciatelli and distilled feature constructor. It will be easier to write down 
-  # our distilled model parameters
-
   num_wind_levels = 181
   distilled_features = np.zeros(4 + 3 * num_wind_levels)
   features = NamedPerciatelliFeatures(perciatelli_features)
 
   distance_km = transforms.undo_squash_to_unit_interval(features.distance_to_station, 250)
   angle_to_station = np.arctan2(features.sin_heading_to_station, features.cos_heading_to_station)
-  # TODO: unsure of units
+
   distilled_features[0] = features.balloon_pressure 
   distilled_features[1] = distance_km
   distilled_features[2] = angle_to_station

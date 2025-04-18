@@ -55,6 +55,11 @@ _eval_suites['small_validation_data'] = EvaluationSuite(list(range(11_000, 11_01
 _eval_suites['training_data'] = EvaluationSuite(list(range(10_000, 11_000)), 960)
 _eval_suites['validation_data'] = EvaluationSuite(list(range(11_000, 11_250)), 960)
 
+# NOTE: this is to compare what q values on a hard seed with bad states / low reward 
+# vs a good seed with good states / high reward
+# The harder seed is 10092 (twr 0.0), easier is 10035 (twr 1.0)
+_eval_suites['test_q_values'] = EvaluationSuite([10092, 10035], 960)
+
 all_strata = []
 for strata in ['hardest', 'hard', 'mid', 'easy', 'easiest']:
   _eval_suites[f'{strata}_strata'] = EvaluationSuite(

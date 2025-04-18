@@ -12,6 +12,7 @@ from flax import linen as nn
 from flax.core import freeze, unfreeze
 import numpy as np
 import jax
+import pickle
 
 
 def load_pretrained_params(npz_path, jax_params):
@@ -128,6 +129,39 @@ def get_perciatelli_params_network(path='perciatelli_weights.npy'):
 
     return jax_params, perciatelli_network
 
+class DistilledNetwork(nn.Module):
+    hidden_size: int = 128
+    num_actions: int = 3
+
+    @nn.compact
+    def __call__(self, x):
+        for i in range(6):
+            x = nn.Dense(self.hidden_size)(x)
+            x = nn.relu(x)
+        
+        x = nn.Dense(self.num_actions)(x) 
+        return x
+
+def get_distilled_model_input_size(num_wind_levels):
+    return 4 + 3 * num_wind_levels
+
+def get_distilled_perciatelli(num_wind_levels, path='q_training/distilled_model_params-1200.pkl'):
+    # Load the distilled model parameters
+    with open(path, 'rb') as f:
+        distilled_params = pickle.load(f)
+    
+    # Initialize the distilled model
+    distilled_model = DistilledNetwork()
+
+    rng = jax.random.PRNGKey(0)
+    dummy_input = jnp.ones((1, get_distilled_model_input_size(num_wind_levels)))  # Example observation batch of size 1
+    distilled_params = distilled_model.init(rng, dummy_input)
+    
+    # Load pretrained weights (ensure "distilled_model_params.pkl" contains)
+    with open('q_training/distilled_model_params.pkl', 'rb') as f:
+      distilled_params = pickle.load(f)
+
+    return distilled_params, distilled_model
 
 
 if __name__ == "__main__":
