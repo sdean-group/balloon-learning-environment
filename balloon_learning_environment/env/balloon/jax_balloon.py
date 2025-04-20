@@ -86,6 +86,18 @@ class JaxBalloonState:
         copy.battery_charge = jnp.astype(state.battery_charge.watt_hours, jnp.float64)
         copy.date_time = jnp.astype(state.date_time.timestamp(), jnp.float64)
         copy.time_elapsed = jnp.astype(state.time_elapsed.total_seconds(), jnp.float64)
+        copy.payload_mass = jnp.astype(state.payload_mass, jnp.float64)
+        copy.envelope_mass = jnp.astype(state.envelope_mass, jnp.float64)
+        copy.envelope_max_superpressure = jnp.astype(state.envelope_max_superpressure, jnp.float64)
+        copy.envelope_volume_base = jnp.astype(state.envelope_volume_base, jnp.float64)
+        copy.envelope_volume_dv_pressure = jnp.astype(state.envelope_volume_dv_pressure, jnp.float64)
+        copy.envelope_cod = jnp.astype(state.envelope_cod, jnp.float64)
+        copy.daytime_power_load = jnp.astype(state.daytime_power_load.watts, jnp.float64)
+        copy.nighttime_power_load = jnp.astype(state.nighttime_power_load.watts, jnp.float64)
+        copy.acs_valve_hole_diameter_meters = jnp.astype(state.acs_valve_hole_diameter.meters, jnp.float64)
+        copy.battery_capacity = jnp.astype(state.battery_capacity.watt_hours, jnp.float64)
+        copy.upwelling_infrared = jnp.astype(state.upwelling_infrared, jnp.float64)
+        copy.mols_lift_gas = jnp.astype(state.mols_lift_gas, jnp.float64)
         return copy
 
     def __init__(self):
