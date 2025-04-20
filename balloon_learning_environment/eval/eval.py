@@ -24,7 +24,7 @@ from typing import Sequence
 from absl import app
 from absl import flags
 from balloon_learning_environment.env import balloon_env  # pylint: disable=unused-import
-from balloon_learning_environment.env.rendering import matplotlib_renderer
+# from balloon_learning_environment.env.rendering import matplotlib_renderer
 from balloon_learning_environment.env import features
 from balloon_learning_environment.eval import eval_lib
 from balloon_learning_environment.eval import suites
@@ -66,11 +66,15 @@ flags.DEFINE_integer(
     'render_period', 10,
     'The period to render with. Only has an effect if renderer is not None.')
 FLAGS = flags.FLAGS
+flags.DEFINE_multi_integer(
+    'seeds', None,
+    'Optional list of seeds to override the evaluation suite seeds.')
 
 
-_RENDERERS = {
-    'matplotlib': matplotlib_renderer.MatplotlibRenderer,
-}
+
+# _RENDERERS = {
+#     'matplotlib': matplotlib_renderer.MatplotlibRenderer,
+# }
 
 _FEATURE_CONSTRUCTORS = {
   'perciatelli': features.PerciatelliFeatureConstructor,
@@ -111,15 +115,15 @@ def main(argv: Sequence[str]) -> None:
                                  FLAGS.agent_gin_file,
                                  FLAGS.gin_bindings)
 
-  renderer = None
-  if FLAGS.renderer is not None:
-    renderer = _RENDERERS[FLAGS.renderer]()
+  # renderer = None
+  # if FLAGS.renderer is not None:
+  #   renderer = _RENDERERS[FLAGS.renderer]()
 
   fc_factory = _FEATURE_CONSTRUCTORS[FLAGS.feature_constructor]
   wf_factory = run_helpers.get_wind_field_factory(FLAGS.wind_field)
   env = gym.make('BalloonLearningEnvironment-v0',
                  wind_field_factory=wf_factory,
-                 renderer=renderer,
+                 renderer=None,
                  feature_constructor_factory=fc_factory)
 
   agent = run_helpers.create_agent(
@@ -130,6 +134,9 @@ def main(argv: Sequence[str]) -> None:
     agent.load_checkpoint(FLAGS.checkpoint_dir, FLAGS.checkpoint_idx)
 
   eval_suite = suites.get_eval_suite(FLAGS.suite)
+
+  if FLAGS.seeds is not None:
+    eval_suite.seeds = FLAGS.seeds
 
   if FLAGS.num_shards > 1:
     start = int(len(eval_suite.seeds) * FLAGS.shard_idx / FLAGS.num_shards)
