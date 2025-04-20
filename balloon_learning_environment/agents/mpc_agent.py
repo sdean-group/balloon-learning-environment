@@ -413,7 +413,7 @@ class MPCAgent(agent.Agent):
         self.forecast = forecast.to_jax_wind_field()
 
     def update_atmosphere(self, atmosphere: agent.standard_atmosphere.Atmosphere): 
-        self.atmosphere = atmosphere.to_jax_atmopshere() 
+        self.atmosphere = atmosphere.to_jax_atmosphere() 
 
 
 

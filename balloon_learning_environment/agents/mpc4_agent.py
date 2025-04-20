@@ -206,8 +206,14 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
 
         plans.append(plan)
     
-    return inverse_sigmoid(jnp.array(plans))
+    return inverse_sigmoid(np.array(plans))
 
+
+@partial(jax.jit, static_argnums=(-2, -1))
+@partial(jax.grad, argnums=0)
+def get_dplan(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, time_delta, stride):
+    # jax.debug.print("{balloon}, {wind_field}, {atmosphere}, {terminal_cost_fn}, {time_delta}, {stride}", balloon=balloon, wind_field=wind_field, atmosphere=atmosphere, terminal_cost_fn=terminal_cost_fn, time_delta=time_delta, stride=stride)
+    return jax_plan_cost(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride)
 
 class MPC4Agent(agent.Agent):
         
@@ -217,7 +223,9 @@ class MPC4Agent(agent.Agent):
         self.ble_atmosphere = None 
         self.atmosphere = None # Atmosphere
 
-        self.get_dplan = jax.jit(jax.grad(jax_plan_cost, argnums=0), static_argnums=(-2, -1))
+        # self._get_dplan = jax.jit(jax.grad(jax_plan_cost, argnums=0), static_argnums=(-2, -1))
+
+
 
         self.plan_time = 2*24*60*60
         self.time_delta = 3*60
@@ -333,7 +341,7 @@ class MPC4Agent(agent.Agent):
             b4 = time.time()
             self.plan = grad_descent_optimizer(
                 initial_plan, 
-                self.get_dplan, 
+                get_dplan, 
                 self.balloon, 
                 self.forecast, 
                 self.atmosphere,
@@ -447,7 +455,7 @@ class MPC4Agent(agent.Agent):
 
     def update_atmosphere(self, atmosphere: agent.standard_atmosphere.Atmosphere): 
         self.ble_atmosphere = atmosphere
-        self.atmosphere = atmosphere.to_jax_atmopshere() 
+        self.atmosphere = atmosphere.to_jax_atmosphere() 
 
 
 class MPC4FollowerAgent(agent.Agent):

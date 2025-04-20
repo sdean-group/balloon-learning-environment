@@ -240,7 +240,6 @@ class JaxBalloon:
         return final_balloon
     
     @partial(jax.jit, static_argnums=(-2, -1)) 
-    # @jax.jit
     def simulate_step_continuous(
             self, 
             wind_vector: '[u, v], meters / second', 

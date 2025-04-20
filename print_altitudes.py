@@ -10,7 +10,7 @@ atmosphere = Atmosphere(key)
 def alt2p_ble(altitutde):
     return atmosphere.at_height(units.Distance(km=altitutde)).pressure
 
-jaxmosphere = atmosphere.to_jax_atmopshere()
+jaxmosphere = atmosphere.to_jax_atmosphere()
 def alt2p_jax_ble(altitutde):
     return jaxmosphere.at_height(units.Distance(km=altitutde).meters).pressure
 

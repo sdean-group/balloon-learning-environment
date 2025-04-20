@@ -72,7 +72,7 @@ class Atmosphere:
   to simulate a broader range of atmospheric conditions.
   """
 
-  def to_jax_atmopshere(self):
+  def to_jax_atmosphere(self):
     return JaxAtmosphere(
        self._lapse_rates, 
        self._temperature_transitions, self._pressure_transitions
