@@ -10,10 +10,10 @@ from balloon_learning_environment.env.balloon.balloon import BalloonState
 from functools import partial
 
 class JaxBalloonStatus:
-  OK = 0
-  OUT_OF_POWER = 1
-  BURST = 2
-  ZEROPRESSURE = 3
+  OK = jnp.astype(0, jnp.int32)
+  OUT_OF_POWER = jnp.astype(1, jnp.int32)
+  BURST = jnp.astype(2, jnp.int32)
+  ZEROPRESSURE = jnp.astype(3, jnp.int32)
 
 class JaxBalloonState:
     
@@ -66,78 +66,71 @@ class JaxBalloonState:
 
     def from_ble_state(state: BalloonState):
         copy = JaxBalloonState()
-        copy.center_latlng = jax_utils.JaxLatLng(state.center_latlng.lat().radians, state.center_latlng.lng().radians)
-        copy.x = state.x.meters
-        copy.y = state.y.meters
-        copy.pressure = state.pressure
-        copy.ambient_temperature = state.ambient_temperature
-        copy.internal_temperature = state.internal_temperature
-        copy.envelope_volume = state.envelope_volume
-        copy.superpressure = state.superpressure
-        copy.status = state.status.value
-        copy.acs_power = state.acs_power.watts
-        copy.acs_mass_flow = state.acs_mass_flow
-        copy.mols_air = state.mols_air
-        copy.solar_charging = state.solar_charging.watts
-        copy.power_load = state.power_load.watts
-        copy.battery_charge = state.battery_charge.watt_hours
-        copy.date_time = state.date_time.timestamp()
-        copy.time_elapsed = state.time_elapsed.total_seconds()
-        copy.payload_mass = state.payload_mass
-        copy.envelope_mass = state.envelope_mass
-        copy.envelope_max_superpressure = state.envelope_max_superpressure
-        copy.envelope_volume_base = state.envelope_volume_base
-        copy.envelope_volume_dv_pressure = state.envelope_volume_dv_pressure
-        copy.envelope_cod = state.envelope_cod
-        copy.daytime_power_load = state.daytime_power_load.watts
-        copy.nighttime_power_load = state.nighttime_power_load.watts
-        copy.acs_valve_hole_diameter_meters = state.acs_valve_hole_diameter.meters
-        copy.battery_capacity = state.battery_capacity.watt_hours
-        copy.upwelling_infrared = state.upwelling_infrared
-        copy.mols_lift_gas = state.mols_lift_gas
+        copy.center_latlng = jax_utils.JaxLatLng(
+            jnp.astype(state.center_latlng.lat().radians, jnp.float64), 
+            jnp.astype(state.center_latlng.lng().radians, jnp.float64)
+        )
+        copy.x = jnp.astype(state.x.meters, jnp.float64)
+        copy.y = jnp.astype(state.y.meters, jnp.float64)
+        copy.pressure = jnp.astype(state.pressure, jnp.float64)
+        copy.ambient_temperature = jnp.astype(state.ambient_temperature, jnp.float64)
+        copy.internal_temperature = jnp.astype(state.internal_temperature, jnp.float64)
+        copy.envelope_volume = jnp.astype(state.envelope_volume, jnp.float64)
+        copy.superpressure = jnp.astype(state.superpressure, jnp.float64)
+        copy.status = jnp.astype(state.status.value, jnp.int32)
+        copy.acs_power = jnp.astype(state.acs_power.watts, jnp.float64)
+        copy.acs_mass_flow = jnp.astype(state.acs_mass_flow, jnp.float64)
+        copy.mols_air = jnp.astype(state.mols_air, jnp.float64)
+        copy.solar_charging = jnp.astype(state.solar_charging.watts, jnp.float64)
+        copy.power_load = jnp.astype(state.power_load.watts, jnp.float64)
+        copy.battery_charge = jnp.astype(state.battery_charge.watt_hours, jnp.float64)
+        copy.date_time = jnp.astype(state.date_time.timestamp(), jnp.float64)
+        copy.time_elapsed = jnp.astype(state.time_elapsed.total_seconds(), jnp.float64)
         return copy
 
     def __init__(self):
-        self.center_latlng = jax_utils.JaxLatLng(0.0, 0.0) # doesn't change but x,y relative to this
+        self.center_latlng = jax_utils.JaxLatLng(
+            jnp.asarray(0.0, jnp.float64), 
+            jnp.asarray(0.0, jnp.float64)) # doesn't change but x,y relative to this
 
         # State variables:
-        self.x = 0.0 # meters
-        self.y = 0.0 # meters
-        self.pressure = 6000.0 # Pascals
+        self.x = jnp.astype(0.0, jnp.float64)  # meters
+        self.y = jnp.astype(0.0, jnp.float64)  # meters
+        self.pressure = jnp.astype(6000.0, jnp.float64)  # Pascals
         
-        self.ambient_temperature = 206.0 # K
-        self.internal_temperature: float = 206.0  # [K]   
+        self.ambient_temperature = jnp.astype(206.0, jnp.float64)  # K
+        self.internal_temperature = jnp.astype(206.0, jnp.float64)  # K   
 
-        self.envelope_volume = 1804.0 # kg/s    
-        self.superpressure = 0.0 # Pascals
-        self.status = 0 # OK
+        self.envelope_volume = jnp.astype(1804.0, jnp.float64)  # kg/s    
+        self.superpressure = jnp.astype(0.0, jnp.float64)  # Pascals
+        self.status = jnp.astype(0, jnp.int32)  # OK
 
-        self.acs_power = 0.0 # Watts
-        self.acs_mass_flow = 0# kg/s
-        self.mols_air = 0.0 # [mols]
+        self.acs_power = jnp.astype(0.0, jnp.float64)  # Watts
+        self.acs_mass_flow = jnp.astype(0.0, jnp.float64)  # kg/s
+        self.mols_air = jnp.astype(0.0, jnp.float64)  # [mols]
 
-        self.solar_charging = 0.0 # Watts
-        self.power_load = 0.0# Watts
+        self.solar_charging = jnp.astype(0.0, jnp.float64)  # Watts
+        self.power_load = jnp.astype(0.0, jnp.float64)  # Watts
 
-        self.battery_charge = 2905.6 # Watt Hours (95% initial capacity)
-        self.date_time = 0.0 # seconds
-        self.time_elapsed = 0.0 # seconds
+        self.battery_charge = jnp.astype(2905.6, jnp.float64)  # Watt Hours (95% initial capacity)
+        self.date_time = jnp.astype(0.0, jnp.float64)  # seconds
+        self.time_elapsed = jnp.astype(0.0, jnp.float64)  # seconds
 
         # Balloon constants:
-        self.payload_mass = 92.5 # kg        
-        self.envelope_mass = 68.5 # kg
-        self.envelope_max_superpressure = 2380 # Pa
-        self.envelope_volume_base = 1804  # [m^3]
-        self.envelope_volume_dv_pressure = 0.0199  # [m^3/Pa]
-        self.envelope_cod = 0.25
-        self.daytime_power_load = 183.7 # Watts
-        self.nighttime_power_load = 120.4 # Watts
+        self.payload_mass = jnp.astype(92.5, jnp.float64)  # kg        
+        self.envelope_mass = jnp.astype(68.5, jnp.float64)  # kg
+        self.envelope_max_superpressure = jnp.astype(2380, jnp.float64)  # Pa
+        self.envelope_volume_base = jnp.astype(1804, jnp.float64)  # [m^3]
+        self.envelope_volume_dv_pressure = jnp.astype(0.0199, jnp.float64)  # [m^3/Pa]
+        self.envelope_cod = jnp.astype(0.25, jnp.float64)
+        self.daytime_power_load = jnp.astype(183.7, jnp.float64)  # Watts
+        self.nighttime_power_load = jnp.astype(120.4, jnp.float64)  # Watts
 
-        self.acs_valve_hole_diameter_meters = 0.04 # m
-        self.battery_capacity = 3058.56 # Watt Hours
+        self.acs_valve_hole_diameter_meters = jnp.astype(0.04, jnp.float64)  # m
+        self.battery_capacity = jnp.astype(3058.56, jnp.float64)  # Watt Hours
         
-        self.upwelling_infrared = 250.0 # W/m^2
-        self.mols_lift_gas = 6830.0 # [mols]
+        self.upwelling_infrared = jnp.astype(250.0, jnp.float64)  # W/m^2
+        self.mols_lift_gas = jnp.astype(6830.0, jnp.float64)  # [mols]
         
     def tree_flatten(self): 
         children = (self.center_latlng, 
@@ -247,7 +240,6 @@ class JaxBalloon:
             acs_control: 'float, [-1, 1]', 
             time_delta: 'int, seconds', 
             stride: 'int, seconds') -> 'next_balloon':
-    
         # time_delta % stride == 0 must be true!
         # check if self.state.status == OK
         # check safety layers
@@ -323,7 +315,8 @@ class JaxBalloon:
         solar_elevation, _, solar_flux = jax_utils.solar_calculator(latlng, state.date_time)
         # print("solar_elevation", solar_elevation)
 
-        new_state.ambient_temperature = atmosphere.at_pressure(state.pressure).temperature
+        new_state.ambient_temperature = jnp.astype(atmosphere.at_pressure(state.pressure).temperature, jnp.float64)
+
         d_internal_temperature = jax_utils.d_balloon_temperature_dt(
             state.envelope_volume, state.envelope_mass, state.internal_temperature,
             state.ambient_temperature, state.pressure, solar_elevation,
@@ -395,7 +388,8 @@ class JaxBalloon:
             
             return state_acs_power, state_acs_mass_flow
         
-        new_state.acs_power, new_state.acs_mass_flow = jax.lax.cond(
+
+        acs_power, acs_mass_flow = jax.lax.cond(
             acs_control < 0.0,
             lambda op: on_action_down(*op),
             lambda op: jax.lax.cond(
@@ -406,12 +400,16 @@ class JaxBalloon:
             ),
             operand=(state, acs_control),
         )
+        acs_power = jnp.astype(acs_power, jnp.float64)
+        acs_mass_flow = jnp.astype(acs_mass_flow, jnp.float64)
+
+        new_state.acs_power, new_state.acs_mass_flow = acs_power, acs_mass_flow
         
         new_state.mols_air= state.mols_air + (
             new_state.acs_mass_flow /
             jax_utils.DRY_AIR_MOLAR_MASS) * stride
-        new_state.mols_air = jnp.max(jnp.array([new_state.mols_air, 0.0]))
-        
+        new_state.mols_air = jnp.max(jnp.array([new_state.mols_air, jnp.astype(0.0, jnp.float64)]))
+
         ## Step 6: Calculate energy usage and collection, and move coulombs onto
         # and off of the battery as apppropriate. 🔋
 
@@ -419,17 +417,18 @@ class JaxBalloon:
         new_state.solar_charging = jax.lax.cond(
             is_day,
             lambda op: jax_utils.solar_power(solar_elevation, op),
-            lambda _: 0.0,
+            lambda _: jnp.astype(0.0, jnp.float64),
             operand=state.pressure,
         )
 
         # TODO(scandido): Introduce a variable power load for cold upwelling IR?
-        new_state.power_load = jax.lax.cond(
+        new_state.power_load = jnp.astype(jax.lax.cond(
             is_day,
             lambda op: op[0],
             lambda op: op[1],
             operand=[state.daytime_power_load, state.nighttime_power_load],
-        )
+        ), jnp.float64)
+
 
         new_state.power_load += new_state.acs_power
 
@@ -437,7 +436,7 @@ class JaxBalloon:
         # temperature and acts like an ideal energy reservoir.
         new_state.battery_charge = state.battery_charge + (
             new_state.solar_charging - new_state.power_load) * (stride/jax_utils.NUM_SECONDS_PER_HOUR)
-        
+
         # print("Q: ", new_state.solar_charging, new_state.power_load)
 
         # energer watts hr
@@ -450,7 +449,7 @@ class JaxBalloon:
                                     lambda op: op,
                                     operand=state.status,
                                     )
-
+        
         # This must be updated in the inner loop, since the safety layer and
         # solar calculations rely on the current time.
         new_state.date_time = state.date_time + stride
@@ -609,7 +608,7 @@ class JaxBalloon:
         new_state.solar_charging = jax.lax.cond(
             is_day,
             lambda op: jax_utils.solar_power(solar_elevation, op),
-            lambda _: 0.0,
+            lambda _: jnp.astype(0.0, jnp.float64),
             operand=state.pressure,
         )
 
@@ -632,7 +631,7 @@ class JaxBalloon:
 
         # energer watts hr
         new_state.battery_charge = jnp.clip(new_state.battery_charge,
-                                                0.0,
+                                                jnp.astype(0.0, jnp.float64),
                                                 state.battery_capacity)
 
         new_state.status = jax.lax.cond(new_state.battery_charge <= 0.0, 
