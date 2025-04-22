@@ -400,15 +400,15 @@ class MPC4Agent(agent.Agent):
         
         height = self.atmosphere.at_pressure(balloon.state.pressure).height.km.item()
 
-        diagnostics['mpc4_agent']['x'].append(balloon.state.x/1000)
-        diagnostics['mpc4_agent']['y'].append(balloon.state.y/1000)
+        diagnostics['mpc4_agent']['x'].append(balloon.state.x.item()/1000)
+        diagnostics['mpc4_agent']['y'].append(balloon.state.y.item()/1000)
         diagnostics['mpc4_agent']['z'].append(height)
         # diagnostics['mpc4_agent']['plan'].append(0.0)
 
         wind_vector = self.forecast.get_forecast(
-            balloon.state.x/1000, 
-            balloon.state.y/1000, 
-            balloon.state.pressure, 
+            balloon.state.x.item()/1000, 
+            balloon.state.y.item()/1000, 
+            balloon.state.pressure.item(), 
             balloon.state.time_elapsed)
         diagnostics['mpc4_agent']['wind'].append([wind_vector[0].item(), wind_vector[1].item()])
 
