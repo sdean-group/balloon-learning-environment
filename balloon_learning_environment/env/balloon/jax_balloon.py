@@ -244,7 +244,7 @@ class JaxBalloon:
         final_balloon = jax.lax.fori_loop(0, outer_stride//inner_stride, update_step, init_val=self)
         return final_balloon
     
-    @partial(jax.jit, static_argnums=(-2, -1)) 
+    @partial(jax.jit, static_argnames=("time_delta", "stride")) 
     def simulate_step_continuous(
             self, 
             wind_vector: '[u, v], meters / second', 

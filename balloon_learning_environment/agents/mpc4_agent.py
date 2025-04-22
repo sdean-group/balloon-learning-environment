@@ -106,7 +106,7 @@ class NoTerminalCost(TerminalCost):
 
 jax.tree_util.register_pytree_node_class(NoTerminalCost)
 
-@partial(jax.jit, static_argnums=(-2, -1))
+@partial(jax.jit, static_argnames=("time_delta", "stride"))
 def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, time_delta: 'int, seconds', stride: 'int, seconds'):
     cost = 0.0
     discount_factor = 0.99
@@ -209,7 +209,7 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
     return inverse_sigmoid(np.array(plans))
 
 
-@partial(jax.jit, static_argnums=(-2, -1))
+@partial(jax.jit, static_argnames=("time_delta", "stride"))
 @partial(jax.grad, argnums=0)
 def get_dplan(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, time_delta, stride):
     # jax.debug.print("{balloon}, {wind_field}, {atmosphere}, {terminal_cost_fn}, {time_delta}, {stride}", balloon=balloon, wind_field=wind_field, atmosphere=atmosphere, terminal_cost_fn=terminal_cost_fn, time_delta=time_delta, stride=stride)
@@ -223,7 +223,7 @@ class MPC4Agent(agent.Agent):
         self.ble_atmosphere = None 
         self.atmosphere = None # Atmosphere
 
-        # self._get_dplan = jax.jit(jax.grad(jax_plan_cost, argnums=0), static_argnums=(-2, -1))
+        # self._get_dplan = jax.jit(jax.grad(jax_plan_cost, argnums=0), static_argnames=("time_delta", "stride"))
 
 
 
