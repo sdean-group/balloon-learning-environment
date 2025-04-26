@@ -39,6 +39,11 @@ _eval_suites = dict()
 _eval_suites['big_eval'] = EvaluationSuite(list(range(10_000)), 960)
 _eval_suites['medium_eval'] = EvaluationSuite(list(range(1_000)), 960)
 _eval_suites['small_eval'] = EvaluationSuite(list(range(100)), 960)
+for i in range(1, 100):
+  _eval_suites[f'small_eval{i}'] = EvaluationSuite(list(range(100*i , 100*(i+1))), 960)
+
+_eval_suites['crashes'] = EvaluationSuite([15, 112, 230, 336], 960)
+
 _eval_suites['tiny_eval'] = EvaluationSuite(list(range(10)), 960)
 _eval_suites['micro_eval'] = EvaluationSuite([0], 960)
 _eval_suites['our_eval'] = EvaluationSuite([2, 5, 8], 960)

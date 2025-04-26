@@ -222,7 +222,7 @@ class JaxBalloon:
     def __init__(self, state: JaxBalloonState):
         self.state = state
 
-    @jax.jit
+    @partial(jax.jit, static_argnames=("time_delta", "stride"))
     def simulate_step(
             self, 
             wind_vector: '[u, v], meters / second', 
@@ -244,8 +244,11 @@ class JaxBalloon:
         final_balloon = jax.lax.fori_loop(0, outer_stride//inner_stride, update_step, init_val=self)
         return final_balloon
     
-    @partial(jax.jit, static_argnums=(-2, -1)) 
-    def simulate_step_continuous(
+    @partial(jax.jit, static_argnames=("time_delta", "stride")) 
+    def simulate_step_continuous(self, wind_vector, atmosphere, acs_control, time_delta, stride):
+        return self.simulate_step_continuous_no_jit(wind_vector, atmosphere, acs_control, time_delta, stride)
+    
+    def simulate_step_continuous_no_jit(
             self, 
             wind_vector: '[u, v], meters / second', 
             atmosphere: JaxAtmosphere, 
@@ -255,9 +258,6 @@ class JaxBalloon:
         # time_delta % stride == 0 must be true!
         # check if self.state.status == OK
         # check safety layers
-
-        # acs_control = jnp.clip(acs_control, -1, 1)
-        # acs_control = 2*jax.nn.sigmoid(acs_control) - 1
 
         def update_step(balloon, i):
             return balloon._simulate_step_continuous_internal(wind_vector, atmosphere, acs_control, stride), None

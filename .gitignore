@@ -21,7 +21,6 @@ balloon_learning_environment/colab/.ipynb_checkpoints/
 
 .DS_Store
 
-eval/
 
 *.json
 diagnostics/*
