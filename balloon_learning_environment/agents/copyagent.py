@@ -58,5 +58,5 @@ class Follower(agent.Agent):
 
     def update_atmosphere(self, atmosphere: agent.standard_atmosphere.Atmosphere): 
         self.atmosphere = atmosphere
-        self.jax_atmosphere = atmosphere.to_jax_atmopshere()
+        self.jax_atmosphere = atmosphere.to_jax_atmosphere()
 

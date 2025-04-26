@@ -72,7 +72,7 @@ class Atmosphere:
   to simulate a broader range of atmospheric conditions.
   """
 
-  def to_jax_atmopshere(self):
+  def to_jax_atmosphere(self):
     return JaxAtmosphere(
        self._lapse_rates, 
        self._temperature_transitions, self._pressure_transitions
@@ -223,9 +223,9 @@ class JaxAtmosphere(JaxTree):
         [-610.0, 17000.0, 21000.0, 32000.0, 47000.0, 51000.0, 71000.0, 85000.0])
   
     def __init__(self, lapse_rates, temperature_transitions, pressure_transitions):
-        self._lapse_rates = jnp.array(lapse_rates)
-        self._temperature_transitions = jnp.array(temperature_transitions)
-        self._pressure_transitions = jnp.array(pressure_transitions)
+        self._lapse_rates = lapse_rates
+        self._temperature_transitions = temperature_transitions
+        self._pressure_transitions = pressure_transitions
 
     @jax.jit 
     def at_height(self, height_meters: float) -> AtmosphericValues:

@@ -149,7 +149,7 @@ def test_simulate_one_step():
         # update jax balloon
         action = 2
         jax_wind_vector = jnp.array([ wind_vector.u.meters_per_second, wind_vector.v.meters_per_second ])
-        jax_balloon = jax_balloon._simulate_step_internal(jax_wind_vector, ATMOPSHERE.to_jax_atmopshere(), action, 10) 
+        jax_balloon = jax_balloon._simulate_step_internal(jax_wind_vector, ATMOPSHERE.to_jax_atmosphere(), action, 10) 
 
         print("________________________________________________________")
         print(f"Iteration {i}")
@@ -173,7 +173,7 @@ def test_simulate_step():
     # update jax balloon
     action = 2
     jax_wind_vector = jnp.array([ wind_vector.u.meters_per_second, wind_vector.v.meters_per_second ])
-    jax_balloon = jax_balloon.simulate_step(jax_wind_vector, ATMOPSHERE.to_jax_atmopshere(), action, time_delta=100*10, stride=10) 
+    jax_balloon = jax_balloon.simulate_step(jax_wind_vector, ATMOPSHERE.to_jax_atmosphere(), action, time_delta=100*10, stride=10) 
 
     compare_prints(ble_balloon.state, jax_balloon.state)
 
@@ -204,7 +204,7 @@ def test_jax_balloon_fidelity():
     google_balloon = balloon.Balloon(balloon_state)
     jax_balloon = JaxBalloon(jax_balloon_state)
 
-    jax_atmosphere = atmosphere.to_jax_atmopshere()
+    jax_atmosphere = atmosphere.to_jax_atmosphere()
     
     def get_plan(going_up, steps, random_walk, plan_size):
         plan = np.zeros((plan_size, ))
@@ -348,7 +348,7 @@ def test_jax_balloon_fidelity():
 
 def test_mpc4_initialization():
 
-    jax_atmopshere = ATMOPSHERE.to_jax_atmopshere()
+    jax_atmopshere = ATMOPSHERE.to_jax_atmosphere()
 
     for seed in range(10):
         jax_pressures_table = {'up': [], 'down': []}
@@ -465,7 +465,7 @@ def test_mpc4_initializations():
     google_balloon = balloon.Balloon(balloon_state)
     jax_balloon = JaxBalloon(jax_balloon_state)
 
-    jax_atmosphere = atmosphere.to_jax_atmopshere()
+    jax_atmosphere = atmosphere.to_jax_atmosphere()
     jax_forecast = wind_forecast.to_jax_wind_field()
 
     def get_altitude_km(jax_balloon):
@@ -507,7 +507,7 @@ def test_mpc4_initializations():
     plt.show()
 
     
-test_mpc4_initializations()
+# test_mpc4_initializations()
 
 def test_mpc_initializations():
     # Balloon configuration
@@ -516,7 +516,7 @@ def test_mpc_initializations():
     y = balloon_state.y.km
     pressure = balloon_state.pressure
     t = balloon_state.time_elapsed.seconds
-    jax_atmosphere = ATMOPSHERE.to_jax_atmopshere()
+    jax_atmosphere = ATMOPSHERE.to_jax_atmosphere()
     jax_forecast = wind_forecast.to_jax_wind_field()
     waypoint_time_step = 3*60
     integration_time_step = 10
@@ -559,7 +559,7 @@ def test_mpc_initializations():
 # test_mpc_initializations()
 
 def test_opd():
-    jax_atmopshere = ATMOPSHERE.to_jax_atmopshere()
+    jax_atmopshere = ATMOPSHERE.to_jax_atmosphere()
     jax_wind_forecast = wind_forecast.to_jax_wind_field()
 
     balloon_state = initialize_balloon()

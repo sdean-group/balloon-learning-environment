@@ -190,6 +190,10 @@ def solar_calculator(
 
     # Compute Julian day number from Gregorian calendar.
     year, month, day = timestamp_to_date_components_jax(time_seconds)
+    year = year.astype(jnp.float64)
+    month = month.astype(jnp.float64)
+    day = day.astype(jnp.float64)
+
     # print('B', year, month, day)
     julian_day_number = (
         367.0 * year

@@ -88,7 +88,7 @@ twrs = []
 
 for seed, result in diagnostics.items():
     # print(seed)
-    # if seed != "11": continue
+    # if int(seed) not in (4,11,19,39,54,55): continue
     if False:
         agent_x = np.array(result['rollout'][agent]['x'])
         agent_y = np.array(result['rollout'][agent]['y'])

@@ -38,7 +38,8 @@ def get_mpc4_small_fix_rewards(use_twr=True):
 
     rewards = {}
 
-    mpc4_path = "logfile.out"
+    mpc4_path = "logfile_modified_initialization.out"
+    # mpc4_path = "logfile.out"
     mpc4_diagnostics = open(mpc4_path, 'r')
     for line in mpc4_diagnostics:
         regex_match = re.search(pattern, line)
@@ -65,7 +66,7 @@ def get_mpc4_small_fix_rewards(use_twr=True):
 
 def compare_perciatelli_mpc4_rewards():
     use_twr = True
-    seeds_to_test = set(range(58))
+    seeds_to_test = set(range(46))
 
     mpc4_rewards = { key:value for key, value in get_mpc4_small_fix_rewards(use_twr).items() if key in seeds_to_test}
     perciatelli_rewards = { key:value for key, value in get_perciatelli_rewards(use_twr).items() if key in seeds_to_test}
