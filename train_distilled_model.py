@@ -62,8 +62,7 @@ def train_distilled_model(num_wind_levels, X_train, y_train, X_val, y_val, num_e
 
 def load_training_data():
     # Load pickled file
-    # filepath = 'q_training/perciatelli-training-data'
-    filepath = 'perciatelli-training-data'
+    filepath = 'q_training/perciatelli-training-data'
     X_train, y_train = [], []
     with open(filepath, 'rb') as f:
         data = pickle.load(f)
