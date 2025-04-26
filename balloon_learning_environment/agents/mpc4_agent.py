@@ -77,7 +77,7 @@ class QTerminalCost(TerminalCost):
         model = jax_perciatelli.DistilledNetwork()
         feature_vector = jax_construct_feature_vector(balloon, wind_forecast, self.get_input_size(), self.num_wind_layers)
         q_vals = model.apply(self.distilled_params, feature_vector)
-        terminal_cost = -jnp.mean(q_vals)
+        terminal_cost = -(jnp.max(q_vals)**2)
         return terminal_cost
     
     def get_input_size(self):
@@ -133,7 +133,7 @@ def jax_plan_cost_no_jit(plan, balloon: JaxBalloon, wind_field: JaxWindField, at
         return next_balloon, cost
 
     final_balloon, cost = jax.lax.fori_loop(0, len(plan), update_step, init_val=(balloon, cost))
-    terminal_cost = jax_balloon_cost(final_balloon) + terminal_cost_fn(final_balloon, wind_field)
+    terminal_cost = (discount_factor**len(plan)) * (jax_balloon_cost(final_balloon) + terminal_cost_fn(final_balloon, wind_field))
     return cost + terminal_cost
 
 def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride):
@@ -246,7 +246,7 @@ class MPC4Agent(agent.Agent):
         self.time = None
         self.steps_within_radius = 0
 
-        using_Q_function = False
+        using_Q_function = True
 
         if using_Q_function:
             self.num_wind_levels = 181
