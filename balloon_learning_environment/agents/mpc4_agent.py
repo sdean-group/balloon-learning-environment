@@ -106,8 +106,11 @@ class NoTerminalCost(TerminalCost):
 
 jax.tree_util.register_pytree_node_class(NoTerminalCost)
 
-@partial(jax.jit, static_argnums=(-2, -1))
-def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, time_delta: 'int, seconds', stride: 'int, seconds'):
+@partial(jax.jit, static_argnums=(5, 6))
+def jax_plan_cost(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride):
+    return jax_plan_cost_no_jit(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride)
+
+def jax_plan_cost_no_jit(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, time_delta: 'int, seconds', stride: 'int, seconds'):
     cost = 0.0
     discount_factor = 0.99
 
@@ -119,14 +122,13 @@ def jax_plan_cost(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmospher
         wind_vector = wind_field.get_forecast(balloon.state.x/1000, balloon.state.y/1000, balloon.state.pressure, balloon.state.time_elapsed)
         
         action = jax.lax.cond(balloon.state.battery_charge/balloon.state.battery_capacity < 0.025,
-                     lambda op: 0.0,
+                     lambda op: jnp.astype(0.0,jnp.float64),
                      lambda op: op[0],
                      operand=(plan[i],))
 
-        next_balloon = balloon.simulate_step_continuous(wind_vector, atmosphere, action, time_delta, stride)
-        
+        next_balloon = balloon.simulate_step_continuous_no_jit(wind_vector, atmosphere, action, time_delta, stride)
+
         cost += (discount_factor**i) * jax_balloon_cost(next_balloon)
-        # cost += jax_balloon_cost(next_balloon)
 
         return next_balloon, cost
 
@@ -171,7 +173,7 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
     down_balloon = balloon
     while time_to_bottom < plan_steps and atmosphere.at_pressure(down_balloon.state.pressure).height.km > min_km_to_explore:
         wind_vector = forecast.get_forecast(down_balloon.state.x/1000, down_balloon.state.y/1000, down_balloon.state.pressure, down_balloon.state.time_elapsed)
-        down_balloon = down_balloon.simulate_step_continuous(wind_vector, atmosphere, -0.99, time_delta, time_delta)
+        down_balloon = down_balloon.simulate_step_continuous(wind_vector, atmosphere, -0.99, time_delta, stride)
         time_to_bottom += 1
 
         flight_record[atmosphere.at_pressure(down_balloon.state.pressure).height.km.item()] = time_to_bottom
@@ -209,11 +211,11 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
     return inverse_sigmoid(np.array(plans))
 
 
-@partial(jax.jit, static_argnums=(-2, -1))
+@partial(jax.jit, static_argnums=(5, 6))
 @partial(jax.grad, argnums=0)
 def get_dplan(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, time_delta, stride):
     # jax.debug.print("{balloon}, {wind_field}, {atmosphere}, {terminal_cost_fn}, {time_delta}, {stride}", balloon=balloon, wind_field=wind_field, atmosphere=atmosphere, terminal_cost_fn=terminal_cost_fn, time_delta=time_delta, stride=stride)
-    return jax_plan_cost(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride)
+    return jax_plan_cost_no_jit(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride)
 
 class MPC4Agent(agent.Agent):
         
@@ -223,7 +225,7 @@ class MPC4Agent(agent.Agent):
         self.ble_atmosphere = None 
         self.atmosphere = None # Atmosphere
 
-        # self._get_dplan = jax.jit(jax.grad(jax_plan_cost, argnums=0), static_argnums=(-2, -1))
+        # self._get_dplan = jax.jit(jax.grad(jax_plan_cost, argnums=0), static_argnames=("time_delta", "stride"))
 
 
 
@@ -316,6 +318,9 @@ class MPC4Agent(agent.Agent):
             
             batched_cost = []
             for i in range(len(initial_plans)):
+                # tmp = jax.make_jaxpr(jax_plan_cost, static_argnums=(5, 6))(initial_plans[i], self.balloon, self.forecast, self.atmosphere, self.terminal_cost_fn, self.time_delta, self.stride)
+                # print(tmp)
+
                 batched_cost.append(jax_plan_cost(initial_plans[i], self.balloon, self.forecast, self.atmosphere, self.terminal_cost_fn, self.time_delta, self.stride))
             
             min_index_so_far = np.argmin(batched_cost)
