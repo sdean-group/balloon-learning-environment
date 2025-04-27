@@ -17,6 +17,8 @@ from functools import partial
 import time
 import json
 
+from line_profiler import profile
+
 def inverse_sigmoid(x):
     return jnp.log((x+1)/(1-x))
 
@@ -32,6 +34,7 @@ def jax_balloon_cost(balloon: JaxBalloon):
 
     return r_2 + battery_cost
 
+@profile
 def jax_construct_feature_vector(balloon: JaxBalloon, wind_forecast: JaxWindField, input_size, num_wind_layers):
     feature_vector = jnp.zeros((input_size,))
 
@@ -107,15 +110,18 @@ class NoTerminalCost(TerminalCost):
 jax.tree_util.register_pytree_node_class(NoTerminalCost)
 
 @partial(jax.jit, static_argnums=(5, 6))
+@profile
 def jax_plan_cost(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride):
     return jax_plan_cost_no_jit(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride)
 
+@profile
 def jax_plan_cost_no_jit(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, time_delta: 'int, seconds', stride: 'int, seconds'):
     cost = 0.0
     discount_factor = 0.99
 
     plan = sigmoid(plan)
     
+    @profile
     def update_step(i, balloon_and_cost: tuple[JaxBalloon, float]):
         balloon, cost = balloon_and_cost
 
@@ -136,6 +142,7 @@ def jax_plan_cost_no_jit(plan, balloon: JaxBalloon, wind_field: JaxWindField, at
     terminal_cost = (discount_factor**len(plan)) * (jax_balloon_cost(final_balloon) + terminal_cost_fn(final_balloon, wind_field))
     return cost + terminal_cost
 
+@profile
 def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride):
     start_cost = jax_plan_cost(initial_plan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride)
     plan = initial_plan
@@ -213,6 +220,7 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
 
 @partial(jax.jit, static_argnums=(5, 6))
 @partial(jax.grad, argnums=0)
+@profile
 def get_dplan(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, time_delta, stride):
     # jax.debug.print("{balloon}, {wind_field}, {atmosphere}, {terminal_cost_fn}, {time_delta}, {stride}", balloon=balloon, wind_field=wind_field, atmosphere=atmosphere, terminal_cost_fn=terminal_cost_fn, time_delta=time_delta, stride=stride)
     return jax_plan_cost_no_jit(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride)
@@ -246,7 +254,7 @@ class MPC4Agent(agent.Agent):
         self.time = None
         self.steps_within_radius = 0
 
-        using_Q_function = True
+        using_Q_function = False
 
         if using_Q_function:
             self.num_wind_levels = 181
@@ -314,7 +322,7 @@ class MPC4Agent(agent.Agent):
             initial_plan =  opd.get_plan_from_opd_node(best_node, search_delta_time=search_delta_time, plan_delta_time=self.time_delta)
 
         elif initialization_type == 'best_altitude':
-            initial_plans = get_initial_plans(self.balloon, 100, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
+            initial_plans = get_initial_plans(self.balloon, 250, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
             
             batched_cost = []
             for i in range(len(initial_plans)):

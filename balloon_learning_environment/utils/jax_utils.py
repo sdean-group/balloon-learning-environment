@@ -13,6 +13,7 @@ from jax.tree_util import register_pytree_node_class
 from jax.scipy.interpolate import RegularGridInterpolator
 
 from typing import Tuple
+from line_profiler import profile
 
 #####
 # Solar.py
@@ -122,7 +123,7 @@ def calculate_jax_latlng_from_offset(
 
     return JaxLatLng.from_radians(new_lat, new_lng).normalized()
 
-
+@profile
 def timestamp_to_date_components_jax(seconds: float):
     """
     JAX-compatible function to convert a timestamp (in seconds since epoch)
@@ -137,16 +138,10 @@ def timestamp_to_date_components_jax(seconds: float):
     # Days since Unix epoch (1970-01-01)
     days = jnp.floor(seconds / 86400.0)
 
-    # Remaining seconds within the current day
-    seconds_in_day = seconds % 86400.0
-    hour = jnp.floor(seconds_in_day / 3600).astype(int)
-    minute = jnp.floor((seconds_in_day % 3600) / 60).astype(int)
-    second = jnp.floor(seconds_in_day % 60).astype(int)
-
     # Julian day to Gregorian calendar conversion
     julian_day = days + 2440587.5  # Unix epoch to Julian day
     f = julian_day + 0.5
-    z = jnp.floor(f).astype(int)
+    z = f // 1 # jnp.floor(f) #.astype(int)
     a = z + 32044
     b = (4 * a + 3) // 146097
     c = a - (b * 146097) // 4
@@ -161,7 +156,7 @@ def timestamp_to_date_components_jax(seconds: float):
 
     return year, month, day
 
-
+@profile
 def solar_calculator(
     latlng: JaxLatLng, time_seconds: float
 ) -> Tuple[float, float, float]:
@@ -335,23 +330,29 @@ def solar_calculator(
     # print(f"In jax solar, latlng.lat: {latlng.lat}, zenith_angle: {zenith_angle}, declination_sun: {declination_sun}")
     # print(f"In jax solar: ({jnp.sin(latlng.lat)*jnp.cos(zenith_angle)}-{jnp.sin(declination_sun)}) / ({jnp.cos(latlng.lat) * jnp.sin(zenith_angle)})")
     # print(f'in jax solar: ({(jnp.sin(latlng.lat)*jnp.cos(zenith_angle)-jnp.sin(declination_sun))}) / ({jnp.cos(latlng.lat) * jnp.sin(zenith_angle)})')
+    @profile
     def compute_cos_az(latlng, zenith_angle, declination_sun):
         epsilon = 1e-5
         near_pole_condition = jnp.abs(jnp.pi / 2 - jnp.abs(latlng.lat)) < epsilon
 
-        cos_az_regular = (
-            jnp.sin(latlng.lat) * jnp.cos(zenith_angle) - jnp.sin(declination_sun)
-        ) / (jnp.cos(latlng.lat) * jnp.sin(zenith_angle))
 
-        cos_az_limiting = (
-            -0.5 * jnp.cos(latlng.lat) * jnp.cos(zenith_angle)
-        ) / (jnp.sin(latlng.lat) * jnp.sin(zenith_angle))
+        @profile
+        def compute_cos_az_regular(lat, zenith_angle, declination_sun):
+            a = jnp.sin(lat) * jnp.cos(zenith_angle) - jnp.sin(declination_sun)
+            b = jnp.cos(lat) * jnp.sin(zenith_angle)
+            c = a / b
+            
+            return c
 
+        @profile
+        def compute_cos_az_near_pole(lat, zenith_angle):
+            return (-0.5 * jnp.cos(lat) * jnp.cos(zenith_angle)) / (jnp.sin(lat) * jnp.sin(zenith_angle))
+      
         cos_az = lax.cond(
             near_pole_condition,
-            lambda _: cos_az_limiting,
-            lambda _: cos_az_regular,
-            operand=None
+            lambda op: compute_cos_az_near_pole(op[0], op[1]),
+            lambda op: compute_cos_az_regular(op[0], op[1], op[2]),
+            operand=(latlng.lat, zenith_angle, declination_sun),
         )
         return cos_az
     

@@ -9,6 +9,8 @@ from balloon_learning_environment.utils import units
 from balloon_learning_environment.env.balloon.balloon import BalloonState
 from functools import partial
 
+from line_profiler import profile
+
 class JaxBalloonStatus:
   OK = jnp.astype(0, jnp.int32)
   OUT_OF_POWER = jnp.astype(1, jnp.int32)
@@ -245,9 +247,11 @@ class JaxBalloon:
         return final_balloon
     
     @partial(jax.jit, static_argnames=("time_delta", "stride")) 
+    @profile
     def simulate_step_continuous(self, wind_vector, atmosphere, acs_control, time_delta, stride):
         return self.simulate_step_continuous_no_jit(wind_vector, atmosphere, acs_control, time_delta, stride)
     
+    @profile
     def simulate_step_continuous_no_jit(
             self, 
             wind_vector: '[u, v], meters / second', 
@@ -269,7 +273,7 @@ class JaxBalloon:
 
         return final_balloon
 
-
+    @profile
     def _simulate_step_continuous_internal(
             self, 
             wind_vector, 
@@ -362,6 +366,7 @@ class JaxBalloon:
         ## Step 5: Calculate, based on desired action, whether we'll use the
         # altitude control system (ACS) ⚙️. Adjust power usage accordingly.
 
+        @profile
         def on_action_up(state: JaxBalloonState, acs_control: float):
             # jax.debug.print("jax balloon action up")
             state_acs_power = 0.0 # watts
@@ -379,6 +384,7 @@ class JaxBalloon:
             
             return state_acs_power, state_acs_mass_flow
 
+        @profile
         def on_action_down(state: JaxBalloonState, acs_control: float):
             # jax.debug.print("jax balloon action down")
             superpressure = jnp.max(jnp.array([state.superpressure, 0.0]))
@@ -393,6 +399,7 @@ class JaxBalloon:
             
             return state_acs_power, state_acs_mass_flow
 
+        @profile
         def on_action_stay():
             # jax.debug.print("jax balloon action stay")
             state_acs_power = 0.0
@@ -404,12 +411,13 @@ class JaxBalloon:
         acs_power, acs_mass_flow = jax.lax.cond(
             acs_control < 0.0,
             lambda op: on_action_down(*op),
-            lambda op: jax.lax.cond(
-                op[1] > 0.0,
-                lambda op1: on_action_up(*op1),
-                lambda _: on_action_stay(),
-                operand=op,
-            ),
+            lambda op: on_action_up(*op),
+            # jax.lax.cond(
+            #     op[1] > 0.0,
+            #     lambda op1: on_action_up(*op1),
+            #     lambda _: on_action_stay(),
+            #     operand=op,
+            # ),
             operand=(state, acs_control),
         )
         acs_power = jnp.astype(acs_power, jnp.float64)
