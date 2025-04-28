@@ -28,9 +28,9 @@ def jax_balloon_cost(balloon: JaxBalloon):
     
     soc = balloon.state.battery_charge / balloon.state.battery_capacity
     
-    battery_cost = 50**2 * (1 -  (1 / (1 + jnp.exp(-100*(soc - 0.1)))))
+    # battery_cost = 50**2 * (1 -  (1 / (1 + jnp.exp(-100*(soc - 0.1)))))
 
-    return r_2 + battery_cost
+    return r_2 # + battery_cost
 
 def jax_construct_feature_vector(balloon: JaxBalloon, wind_forecast: JaxWindField, input_size, num_wind_layers):
     feature_vector = jnp.zeros((input_size,))
@@ -77,7 +77,7 @@ class QTerminalCost(TerminalCost):
         model = jax_perciatelli.DistilledNetwork()
         feature_vector = jax_construct_feature_vector(balloon, wind_forecast, self.get_input_size(), self.num_wind_layers)
         q_vals = model.apply(self.distilled_params, feature_vector)
-        terminal_cost = -(jnp.max(q_vals)**2)
+        terminal_cost = -(jnp.mean(q_vals)**2) # NOTE: can also test with max(Q_values)
         return terminal_cost
     
     def get_input_size(self):
@@ -121,10 +121,11 @@ def jax_plan_cost_no_jit(plan, balloon: JaxBalloon, wind_field: JaxWindField, at
 
         wind_vector = wind_field.get_forecast(balloon.state.x/1000, balloon.state.y/1000, balloon.state.pressure, balloon.state.time_elapsed)
         
-        action = jax.lax.cond(balloon.state.battery_charge/balloon.state.battery_capacity < 0.025,
-                     lambda op: jnp.astype(0.0,jnp.float64),
-                     lambda op: op[0],
-                     operand=(plan[i],))
+        action = plan[i]
+        #  jax.lax.cond(balloon.state.battery_charge/balloon.state.battery_capacity < 0.025,
+        #              lambda op: jnp.astype(0.0,jnp.float64),
+        #              lambda op: op[0],
+        #              operand=(plan[i],))
 
         next_balloon = balloon.simulate_step_continuous_no_jit(wind_vector, atmosphere, action, time_delta, stride)
 
@@ -226,8 +227,6 @@ class MPC4Agent(agent.Agent):
         self.atmosphere = None # Atmosphere
 
         # self._get_dplan = jax.jit(jax.grad(jax_plan_cost, argnums=0), static_argnames=("time_delta", "stride"))
-
-
 
         self.plan_time = 2*24*60*60
         self.time_delta = 3*60
