@@ -8,6 +8,9 @@ build/
 
 q_training/
 
+saved_results/
+*.lprof
+
 *.err
 *.out
 get_fan_efficiency_interpolator.py
