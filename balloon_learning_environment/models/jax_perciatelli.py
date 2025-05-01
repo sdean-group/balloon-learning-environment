@@ -141,7 +141,7 @@ class DistilledNetwork(nn.Module):
 def get_distilled_model_input_size(num_wind_levels):
     return 4 + 3 * num_wind_levels
 
-def get_distilled_perciatelli(num_wind_levels, path='q_training/distilled_model_params-1200.pkl'):
+def get_distilled_perciatelli(num_wind_levels, filepath='q_training/distilled_model_params-1200.pkl'):
     # Initialize the distilled model
     distilled_model = DistilledNetwork()
 
@@ -150,7 +150,7 @@ def get_distilled_perciatelli(num_wind_levels, path='q_training/distilled_model_
     distilled_params = distilled_model.init(rng, dummy_input)
     
     # Load pretrained weights (ensure "distilled_model_params.pkl" contains)
-    with open('q_training/distilled_model_params.pkl', 'rb') as f:
+    with open(filepath, 'rb') as f:
       distilled_params = pickle.load(f)
 
     return distilled_params, distilled_model
