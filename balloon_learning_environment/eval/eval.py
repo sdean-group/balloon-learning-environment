@@ -65,10 +65,15 @@ flags.DEFINE_string(
 flags.DEFINE_integer(
     'render_period', 10,
     'The period to render with. Only has an effect if renderer is not None.')
+flags.DEFINE_integer(
+    'start_seed', None,
+    'The seed to start the evaluation from. Optional, but will override the suite'
+)
+flags.DEFINE_integer(
+    'end_seed', None,
+    'The seed to end the evaluation at. Optional, but will override the suite'
+)
 FLAGS = flags.FLAGS
-flags.DEFINE_multi_integer(
-    'seeds', None,
-    'Optional list of seeds to override the evaluation suite seeds.')
 
 
 
@@ -133,10 +138,18 @@ def main(argv: Sequence[str]) -> None:
   if FLAGS.checkpoint_dir is not None and FLAGS.checkpoint_idx is not None:
     agent.load_checkpoint(FLAGS.checkpoint_dir, FLAGS.checkpoint_idx)
 
+  # suite is required
   eval_suite = suites.get_eval_suite(FLAGS.suite)
 
-  if FLAGS.seeds is not None:
-    eval_suite.seeds = FLAGS.seeds
+  if FLAGS.start_seed is not None and FLAGS.end_seed is not None:
+    print("WARNING: both start_seed and end_seed are set. Seeds will be used.")
+    eval_suite.seeds = list(
+        range(FLAGS.start_seed, FLAGS.end_seed + 1))
+  elif FLAGS.start_seed != FLAGS.end_seed:
+    print("WARNING: one of start_seed and end_seed is None equal. Suite will be used.")
+    FLAGS.start_seed = None
+    FLAGS.end_seed = None
+    
 
   if FLAGS.num_shards > 1:
     start = int(len(eval_suite.seeds) * FLAGS.shard_idx / FLAGS.num_shards)
