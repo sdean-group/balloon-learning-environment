@@ -128,6 +128,7 @@ def eval_agent(agent: base_agent.Agent,
                env: balloon_env.BalloonEnv,
                eval_suite: suites.EvaluationSuite,
                *,
+               collect_diagnostics=False,
                render_period: int = 10,
                calculate_flight_path: bool = True) -> List[EvaluationResult]:
   """Evaluates an agent on a given test suite.
@@ -154,7 +155,7 @@ def eval_agent(agent: base_agent.Agent,
   logging.info('Starting evaluation of %s on %s', agent.get_name(), eval_suite)
   agent.set_mode(base_agent.AgentMode.EVAL)
 
-  diagnostics = {}
+
   
   def simulator_write_diagnostics(diagnostic, simulator_state: simulator_data.SimulatorState, start=False):
     state = simulator_state.balloon_state
@@ -176,15 +177,13 @@ def eval_agent(agent: base_agent.Agent,
     wind_vector = simulator_state.wind_field.get_ground_truth(state.x, state.y, state.pressure, state.time_elapsed)
     diagnostic['simulator']['wind'].append([wind_vector.u.meters_per_second, wind_vector.v.meters_per_second])
 
-  # def simulator_write_diagnostics_end(diagnostic, simulator_state: simulator_data.SimulatorState):
-  #   diagnostics.append({'seed': seed, 'twr': twr, 'reward': total_reward, 'steps': step_count, 'diagnostic': diagnostic})
+  if collect_diagnostics:
+    diagnostics = {}
 
   for seed_idx, seed in enumerate(eval_suite.seeds):
     total_reward = 0.0
     steps_within_radius = 0
     flight_path = list()
-
-    diagnostic = {}
 
     step_count = 0
 
@@ -192,10 +191,16 @@ def eval_agent(agent: base_agent.Agent,
     observation = env.reset()
     agent.update_forecast(env.get_wind_forecast())
     agent.update_atmosphere(env.get_atmosphere())
-    agent.write_diagnostics_start(observation, diagnostic)
+
+    if collect_diagnostics:
+      diagnostic = {}
+      agent.write_diagnostics_start(observation, diagnostic)
+    
     action = agent.begin_episode(observation)
-    agent.write_diagnostics(diagnostic)
-    simulator_write_diagnostics(diagnostic, env.get_simulator_state(), start=True)
+    
+    if collect_diagnostics:
+      agent.write_diagnostics(diagnostic)
+      simulator_write_diagnostics(diagnostic, env.get_simulator_state(), start=True)
 
     # Implement json debugging
 
@@ -207,7 +212,9 @@ def eval_agent(agent: base_agent.Agent,
         observation, reward, is_done, info = env.step(action)
 
         action = agent.step(reward, observation)
-        agent.write_diagnostics(diagnostic)
+
+        if collect_diagnostics:
+          agent.write_diagnostics(diagnostic)
 
         total_reward += reward
         balloon_state = env.get_simulator_state().balloon_state
@@ -217,7 +224,8 @@ def eval_agent(agent: base_agent.Agent,
         steps_within_radius += _balloon_is_within_radius(balloon_state,
                                                         env.radius)
 
-        simulator_write_diagnostics(diagnostic, env.get_simulator_state())
+        if collect_diagnostics:
+          simulator_write_diagnostics(diagnostic, env.get_simulator_state())
 
         if step_count % render_period == 0:
           env.render()  # No-op if renderer is None.
@@ -233,11 +241,12 @@ def eval_agent(agent: base_agent.Agent,
         pbar.update(1)
 
     twr = steps_within_radius / step_count
-    agent.write_diagnostics_end(diagnostic)
-    simulator_write_diagnostics(diagnostic, env.get_simulator_state())
 
-    # 
-    diagnostics[seed]={'seed': seed, 'twr': twr, 'reward': total_reward, 'steps': step_count, 'rollout': diagnostic}
+    if collect_diagnostics:
+      agent.write_diagnostics_end(diagnostic)
+      simulator_write_diagnostics(diagnostic, env.get_simulator_state())
+
+      diagnostics[seed]={'seed': seed, 'twr': twr, 'reward': total_reward, 'steps': step_count, 'rollout': diagnostic}
     
     agent.end_episode(reward, is_done)
 
@@ -265,9 +274,7 @@ def eval_agent(agent: base_agent.Agent,
     
     results.append(eval_result)
 
-  datafile = f'diagnostics/{type(agent).__name__}-{int(dt.datetime.now().timestamp()*1000)}.json'
-  with open(datafile, 'w', encoding='utf-8') as f:
-    json.dump(diagnostics, f, ensure_ascii=False, indent=4)
-
-
-  return results
+  if collect_diagnostics:
+    return results, diagnostics
+  else:
+    return results, {}

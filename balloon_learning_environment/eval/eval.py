@@ -17,6 +17,8 @@ r"""Entry point for evaluating agents on the Balloon Learning Environment.
 
 """
 
+import datetime as dt
+
 import json
 import os
 from typing import Sequence
@@ -72,6 +74,10 @@ flags.DEFINE_integer(
 flags.DEFINE_integer(
     'end_seed', None,
     'The seed to end the evaluation at. Optional, but will override the suite'
+)
+flags.DEFINE_boolean(
+  'collect_diagnostics', False,
+  'Whether to collect advanced diagnostics'
 )
 FLAGS = flags.FLAGS
 
@@ -156,9 +162,17 @@ def main(argv: Sequence[str]) -> None:
     end = int(len(eval_suite.seeds) * (FLAGS.shard_idx + 1) / FLAGS.num_shards)
     eval_suite.seeds = eval_suite.seeds[start:end]
 
-  eval_result = eval_lib.eval_agent(agent, env, eval_suite,
-                                    render_period=FLAGS.render_period)
+  eval_result, eval_diagnostics = eval_lib.eval_agent(agent, env, eval_suite,
+                                    render_period=FLAGS.render_period,
+                                    collect_diagnostics=FLAGS.collect_diagnostics)
+
   write_result(eval_result)
+
+  if FLAGS.collect_diagnostics:
+    # write eval_diagnostics to a json file
+    datafile = os.path.join(FLAGS.output_dir, f'{type(agent).__name__}-{int(dt.datetime.now().timestamp()*1000)}.json')
+    with open(datafile, 'w', encoding='utf-8') as f:
+      json.dump(eval_diagnostics, f, ensure_ascii=False, indent=4)
 
 
 if __name__ == '__main__':
