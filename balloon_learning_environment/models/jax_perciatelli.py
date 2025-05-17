@@ -1,9 +1,3 @@
-
-from balloon_learning_environment.agents import agent
-from balloon_learning_environment.agents.perciatelli44 import load_perciatelli_session
-from balloon_learning_environment.models import models
-import tensorflow as tf
-
 import jax.numpy as jnp
 from flax import linen as nn
 import jax
@@ -13,6 +7,11 @@ from flax.core import freeze, unfreeze
 import numpy as np
 import jax
 import pickle
+from balloon_learning_environment.utils import units
+from balloon_learning_environment.utils import constants
+from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
+from balloon_learning_environment.env.wind_field import JaxWindField
+
 
 
 def load_pretrained_params(npz_path, jax_params):
@@ -124,6 +123,35 @@ def get_perciatelli_params_network(path='perciatelli_weights.npy'):
     jax_params = load_pretrained_params(path, perciatelli_network.init(jax.random.PRNGKey(0), jnp.ones((1, 1099))))
 
     return jax_params, perciatelli_network
+
+def jax_construct_feature_vector(balloon: JaxBalloon, wind_forecast: JaxWindField, input_size, num_wind_layers):
+    feature_vector = jnp.zeros((input_size,))
+
+    x_km = balloon.state.x/1000
+    y_km = balloon.state.y/1000
+
+    distance = jnp.sqrt(x_km**2 + y_km**2)
+    angle_heading_to_station = jnp.atan2(-x_km, -y_km)
+
+    feature_vector = feature_vector.at[0].set(balloon.state.pressure)
+    feature_vector = feature_vector.at[1].set(distance)
+    feature_vector = feature_vector.at[2].set(angle_heading_to_station)
+    feature_vector = feature_vector.at[3].set(balloon.state.battery_charge/balloon.state.battery_capacity)
+    
+    # Fill in wind values
+    pressure_levels = jnp.linspace(constants.PERCIATELLI_PRESSURE_RANGE_MIN,
+                                   constants.PERCIATELLI_PRESSURE_RANGE_MAX,
+                                   num_wind_layers)
+
+    def compute_wind_features(i, feature_vector):
+        wind_vector = wind_forecast.get_forecast(x_km, y_km, pressure_levels[i], balloon.state.time_elapsed)
+        feature_vector = feature_vector.at[4 + i * 3 + 0].set(jnp.sqrt(wind_vector[0]**2 + wind_vector[1]**2))
+        feature_vector = feature_vector.at[4 + i * 3 + 1].set(jnp.arctan2(wind_vector[1], wind_vector[0]))
+        feature_vector = feature_vector.at[4 + i * 3 + 2].set(pressure_levels[i])
+        return feature_vector
+
+    feature_vector = jax.lax.fori_loop(0, num_wind_layers, compute_wind_features, feature_vector)
+    return feature_vector
 
 class DistilledNetwork(nn.Module):
     hidden_size: int = 128

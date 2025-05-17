@@ -1,16 +1,11 @@
-import jax.scipy.optimize
 import scipy.interpolate
-import scipy.optimize
 from balloon_learning_environment.agents import agent, opd
 from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
 from balloon_learning_environment.env.wind_field import JaxWindField
-from balloon_learning_environment.utils import units
-from balloon_learning_environment.utils import constants
-from balloon_learning_environment.models import jax_perciatelli
 from balloon_learning_environment.env.balloon.standard_atmosphere import JaxAtmosphere
+from balloon_learning_environment.models import jax_perciatelli
 import numpy as np
 import jax
-import datetime as dt
 import jax.numpy as jnp
 import scipy
 from functools import partial
@@ -28,54 +23,22 @@ def jax_balloon_cost(balloon: JaxBalloon):
     
     soc = balloon.state.battery_charge / balloon.state.battery_capacity
     
-    # battery_cost = 50**2 * (1 -  (1 / (1 + jnp.exp(-100*(soc - 0.1)))))
+    battery_cost = 50**2 * (1 -  (1 / (1 + jnp.exp(-100*(soc - 0.1)))))
 
-    return r_2 # + battery_cost
-
-def jax_construct_feature_vector(balloon: JaxBalloon, wind_forecast: JaxWindField, input_size, num_wind_layers):
-    feature_vector = jnp.zeros((input_size,))
-
-    x_km = balloon.state.x/1000
-    y_km = balloon.state.y/1000
-
-    distance = jnp.sqrt(x_km**2 + y_km**2)
-    angle_heading_to_station = jnp.atan2(-x_km, -y_km)
-
-    feature_vector = feature_vector.at[0].set(balloon.state.pressure)
-    feature_vector = feature_vector.at[1].set(distance)
-    feature_vector = feature_vector.at[2].set(angle_heading_to_station)
-    feature_vector = feature_vector.at[3].set(balloon.state.battery_charge/balloon.state.battery_capacity)
-    
-    # Fill in wind values
-    pressure_levels = jnp.linspace(constants.PERCIATELLI_PRESSURE_RANGE_MIN,
-                                   constants.PERCIATELLI_PRESSURE_RANGE_MAX,
-                                   num_wind_layers)
-
-    def compute_wind_features(i, feature_vector):
-        wind_vector = wind_forecast.get_forecast(x_km, y_km, pressure_levels[i], balloon.state.time_elapsed)
-        feature_vector = feature_vector.at[4 + i * 3 + 0].set(jnp.sqrt(wind_vector[0]**2 + wind_vector[1]**2))
-        feature_vector = feature_vector.at[4 + i * 3 + 1].set(jnp.arctan2(wind_vector[1], wind_vector[0]))
-        feature_vector = feature_vector.at[4 + i * 3 + 2].set(pressure_levels[i])
-        return feature_vector
-
-    feature_vector = jax.lax.fori_loop(0, num_wind_layers, compute_wind_features, feature_vector)
-    return feature_vector
+    return r_2 + battery_cost
 
 class TerminalCost:
     def __call__(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
         pass
 
 class QTerminalCost(TerminalCost):
-    def __init__(self, num_wind_layers, 
-                #  distilled_network: jax_perciatelli.DistilledNetwork,
-                 distilled_params):
+    def __init__(self, num_wind_layers, distilled_params):
         self.num_wind_layers = num_wind_layers
-        # self.distilled_network = distilled_network
         self.distilled_params = distilled_params
 
     def __call__(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
         model = jax_perciatelli.DistilledNetwork()
-        feature_vector = jax_construct_feature_vector(balloon, wind_forecast, self.get_input_size(), self.num_wind_layers)
+        feature_vector = jax_perciatelli.jax_construct_feature_vector(balloon, wind_forecast, self.get_input_size(), self.num_wind_layers)
         q_vals = model.apply(self.distilled_params, feature_vector)
         terminal_cost = -(jnp.mean(q_vals)**2) # NOTE: can also test with max(Q_values)
         return terminal_cost
@@ -121,11 +84,11 @@ def jax_plan_cost_no_jit(plan, balloon: JaxBalloon, wind_field: JaxWindField, at
 
         wind_vector = wind_field.get_forecast(balloon.state.x/1000, balloon.state.y/1000, balloon.state.pressure, balloon.state.time_elapsed)
         
-        action = plan[i]
-        #  jax.lax.cond(balloon.state.battery_charge/balloon.state.battery_capacity < 0.025,
-        #              lambda op: jnp.astype(0.0,jnp.float64),
-        #              lambda op: op[0],
-        #              operand=(plan[i],))
+        # action = plan[i]
+        action = jax.lax.cond(balloon.state.battery_charge/balloon.state.battery_capacity < 0.025,
+                     lambda op: jnp.astype(0.0,jnp.float64),
+                     lambda op: op[0],
+                     operand=(plan[i],))
 
         next_balloon = balloon.simulate_step_continuous_no_jit(wind_vector, atmosphere, action, time_delta, stride)
 
@@ -245,7 +208,7 @@ class MPC4Agent(agent.Agent):
         self.time = None
         self.steps_within_radius = 0
 
-        using_Q_function = True
+        using_Q_function = False
 
         if using_Q_function:
             self.num_wind_levels = 181

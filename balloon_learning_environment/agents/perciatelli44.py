@@ -28,6 +28,13 @@ import datetime as dt
 from balloon_learning_environment.utils import transforms
 import pickle
 
+import jax
+import jax.numpy as jnp
+from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
+from balloon_learning_environment.env.wind_field import JaxWindField
+from balloon_learning_environment.models import jax_perciatelli
+from functools import partial
+
 
 def load_perciatelli_session() -> tf.compat.v1.Session:
   serialized_perciatelli = models.load_perciatelli44()
@@ -110,12 +117,59 @@ def get_distilled_model_features(perciatelli_features: np.ndarray, wind_forecast
   wind_column = wind_forecast.get_forecast_column(x, y, pressure_levels, elapsed_time)
 
   # from minimum pressure to maximum pressure
+  point_at_origin = np.array([ -x.km, -y.km ])
+  point_at_origin /= np.linalg.norm(point_at_origin)
+
+
   for i, wind_vector in enumerate(wind_column):
+    wind_direction = np.array([ wind_vector.u.meters_per_second, wind_vector.v.meters_per_second ])
+    wind_direction /= np.linalg.norm(wind_direction)
+
+    cos_direction = np.dot(wind_direction, point_at_origin)
+    wind_angle = np.arccos(np.clip(cos_direction, -1.0, 1.0))
+
     distilled_features[4 + i * 3 + 0] = np.sqrt(wind_vector.u.meters_per_second**2 + wind_vector.v.meters_per_second**2)
-    distilled_features[4 + i * 3 + 1] = np.arctan2(wind_vector.v.meters_per_second, wind_vector.u.meters_per_second)
+    distilled_features[4 + i * 3 + 1] = wind_angle
     distilled_features[4 + i * 3 + 2] = pressure_levels[i]
 
   return distilled_features
+
+@partial(jax.jit, static_argnums=(3, 4))
+def get_q_vals(balloon_state: JaxBalloonState, forecast: JaxWindField, params, input_size, num_wind_levels):
+    balloon = JaxBalloon(balloon_state)
+    model = jax_perciatelli.DistilledNetwork()
+    feature_vector = jax_perciatelli.jax_construct_feature_vector(balloon, forecast, input_size, num_wind_levels)
+    return model.apply(params, feature_vector)
+
+class DistilledPerciatelliAgent(agent.Agent):
+    
+  def __init__(self, num_actions: int, observation_shape: Sequence[int]):
+    super(DistilledPerciatelliAgent, self).__init__(num_actions, observation_shape)
+
+    self.num_wind_levels = 181
+    self.input_size = jax_perciatelli.get_distilled_model_input_size(self.num_wind_levels)
+    self.params = jax_perciatelli.get_distilled_perciatelli(self.num_wind_levels)[0]
+
+    self.feature_constructor = jax.jit(jax_perciatelli.jax_construct_feature_vector)
+    self.forecast = None
+
+  def _get_action(self, observation):
+    q_vals = get_q_vals(observation, self.forecast, self.params, self.input_size, self.num_wind_levels)
+    return jnp.argmax(q_vals).item()
+
+  def begin_episode(self, observation) -> int:
+    return self._get_action(observation)
+
+  def step(self, reward: float, observation) -> int:
+    return self._get_action(observation)
+
+  def end_episode(self, reward: float, terminal: bool = True) -> None:
+    pass
+
+  def update_forecast(self, forecast: agent.WindField): 
+    self.forecast = forecast.to_jax_wind_field()
+
+
 
 class Perciatelli44DataCollector(agent.Agent):
   """Perciatelli44 Agent.
@@ -150,7 +204,8 @@ class Perciatelli44DataCollector(agent.Agent):
     self.forecast = None
     self.elapsed_time = dt.timedelta(seconds=0)
 
-    self.data_collection = []
+    self.X_train = []
+    self.y_train = []
 
   def begin_episode(self, observation: np.ndarray) -> int:
     self.elapsed_time = dt.timedelta(seconds=0)
@@ -160,7 +215,8 @@ class Perciatelli44DataCollector(agent.Agent):
     q_vals = self._sess.run(self._q_vals,
                             feed_dict={self._observation: observation})
     
-    self.data_collection.append((distilled_features, q_vals))
+    self.X_train.append(distilled_features)
+    self.y_train.append(q_vals)
 
     return np.argmax(q_vals).item()
 
@@ -172,7 +228,8 @@ class Perciatelli44DataCollector(agent.Agent):
                             feed_dict={self._observation: observation})
 
 
-    self.data_collection.append((distilled_features, q_vals))
+    self.X_train.append(distilled_features)
+    self.y_train.append(q_vals)
 
     return np.argmax(q_vals).item()
 
@@ -183,9 +240,13 @@ class Perciatelli44DataCollector(agent.Agent):
     self.forecast = forecast
 
   def write_diagnostics_end(self, diagnostics):
+    pass
     # Pickle data_collection
-    with open('perciatelli-training-data', 'wb') as f:
-      pickle.dump(self.data_collection, f)
+
+    # diagnostics['data-collector'] = self.data_collection
+    # filepath = f'q_training/{int(dt.datetime.now().timestamp()*1000)}-perciatelli-training-data.pkl'
+    # with open(filepath, 'wb') as f:
+    #   pickle.dump(self.data_collection, f)
 
     # # Read pickled file
     # with open('perciatelli-training-data', 'rb') as f:

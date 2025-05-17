@@ -33,6 +33,8 @@ from balloon_learning_environment.eval import suites
 from balloon_learning_environment.utils import run_helpers
 import gym
 
+import pickle 
+
 flags.DEFINE_string('feature_constructor', 'perciatelli', 'perciatelli or mpc')
 flags.DEFINE_string('agent', 'dqn', 'The name of the agent to create.')
 flags.DEFINE_enum('suite', 'big_eval',
@@ -165,6 +167,22 @@ def main(argv: Sequence[str]) -> None:
   eval_result, eval_diagnostics = eval_lib.eval_agent(agent, env, eval_suite,
                                     render_period=FLAGS.render_period,
                                     collect_diagnostics=FLAGS.collect_diagnostics)
+
+  
+  try:
+    tmp0 = [ agent.X_train, agent.y_train ] # break here
+
+
+    tmp = int(dt.datetime.now().timestamp()*1000)
+    x_train_filepath = f'q_training/{tmp}-X_train.pkl'
+    with open(x_train_filepath, 'wb') as f:
+      pickle.dump(agent.X_train, f)
+
+    y_train_filepath = f'q_training/{tmp}-y_train.pkl'
+    with open(y_train_filepath, 'wb') as f:
+      pickle.dump(agent.y_train, f)
+  except Exception as e:
+    print(e)
 
   write_result(eval_result)
 
