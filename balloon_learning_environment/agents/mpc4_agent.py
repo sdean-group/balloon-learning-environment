@@ -196,7 +196,7 @@ class MPC4Agent(agent.Agent):
         self.stride = 10
 
         # self.plan_steps = 960 + 23 
-        self.plan_steps = 240 # (self.plan_time // self.time_delta) // 3
+        self.plan_steps = 32 # (self.plan_time // self.time_delta) // 3
         # self.N = self.plan_steps
 
         self.plan = None # jnp.full((self.plan_steps, ), fill_value=1.0/3.0)
@@ -343,7 +343,7 @@ class MPC4Agent(agent.Agent):
             return action.item()
         else:
             
-            N = min(len(self.plan), 23)
+            N = min(len(self.plan), 16)
             if self.i>0 and self.i%N==0:
                 # self.plan_steps -= N
                 self.key, rng = jax.random.split(self.key, 2)
