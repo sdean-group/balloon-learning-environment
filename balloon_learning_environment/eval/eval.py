@@ -17,6 +17,8 @@ r"""Entry point for evaluating agents on the Balloon Learning Environment.
 
 """
 
+import datetime as dt
+
 import json
 import os
 from typing import Sequence
@@ -30,6 +32,8 @@ from balloon_learning_environment.eval import eval_lib
 from balloon_learning_environment.eval import suites
 from balloon_learning_environment.utils import run_helpers
 import gym
+
+import pickle 
 
 flags.DEFINE_string('feature_constructor', 'perciatelli', 'perciatelli or mpc')
 flags.DEFINE_string('agent', 'dqn', 'The name of the agent to create.')
@@ -65,10 +69,19 @@ flags.DEFINE_string(
 flags.DEFINE_integer(
     'render_period', 10,
     'The period to render with. Only has an effect if renderer is not None.')
+flags.DEFINE_integer(
+    'start_seed', None,
+    'The seed to start the evaluation from. Optional, but will override the suite'
+)
+flags.DEFINE_integer(
+    'end_seed', None,
+    'The seed to end the evaluation at. Optional, but will override the suite'
+)
+flags.DEFINE_boolean(
+  'collect_diagnostics', False,
+  'Whether to collect advanced diagnostics'
+)
 FLAGS = flags.FLAGS
-flags.DEFINE_multi_integer(
-    'seeds', None,
-    'Optional list of seeds to override the evaluation suite seeds.')
 
 
 
@@ -133,19 +146,51 @@ def main(argv: Sequence[str]) -> None:
   if FLAGS.checkpoint_dir is not None and FLAGS.checkpoint_idx is not None:
     agent.load_checkpoint(FLAGS.checkpoint_dir, FLAGS.checkpoint_idx)
 
+  # suite is required
   eval_suite = suites.get_eval_suite(FLAGS.suite)
 
-  if FLAGS.seeds is not None:
-    eval_suite.seeds = FLAGS.seeds
+  if FLAGS.start_seed is not None and FLAGS.end_seed is not None:
+    print("WARNING: both start_seed and end_seed are set. Seeds will be used.")
+    eval_suite.seeds = list(
+        range(FLAGS.start_seed, FLAGS.end_seed + 1))
+  elif FLAGS.start_seed != FLAGS.end_seed:
+    print("WARNING: one of start_seed and end_seed is None equal. Suite will be used.")
+    FLAGS.start_seed = None
+    FLAGS.end_seed = None
+    
 
   if FLAGS.num_shards > 1:
     start = int(len(eval_suite.seeds) * FLAGS.shard_idx / FLAGS.num_shards)
     end = int(len(eval_suite.seeds) * (FLAGS.shard_idx + 1) / FLAGS.num_shards)
     eval_suite.seeds = eval_suite.seeds[start:end]
 
-  eval_result = eval_lib.eval_agent(agent, env, eval_suite,
-                                    render_period=FLAGS.render_period)
+  eval_result, eval_diagnostics = eval_lib.eval_agent(agent, env, eval_suite,
+                                    render_period=FLAGS.render_period,
+                                    collect_diagnostics=FLAGS.collect_diagnostics)
+
+  
+  try:
+    tmp0 = [ agent.X_train, agent.y_train ] # break here
+
+
+    tmp = int(dt.datetime.now().timestamp()*1000)
+    x_train_filepath = f'q_training/{tmp}-X_train.pkl'
+    with open(x_train_filepath, 'wb') as f:
+      pickle.dump(agent.X_train, f)
+
+    y_train_filepath = f'q_training/{tmp}-y_train.pkl'
+    with open(y_train_filepath, 'wb') as f:
+      pickle.dump(agent.y_train, f)
+  except Exception as e:
+    print(e)
+
   write_result(eval_result)
+
+  if FLAGS.collect_diagnostics:
+    # write eval_diagnostics to a json file
+    datafile = os.path.join(FLAGS.output_dir, f'{type(agent).__name__}-{int(dt.datetime.now().timestamp()*1000)}.json')
+    with open(datafile, 'w', encoding='utf-8') as f:
+      json.dump(eval_diagnostics, f, ensure_ascii=False, indent=4)
 
 
 if __name__ == '__main__':
