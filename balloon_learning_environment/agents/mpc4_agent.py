@@ -208,7 +208,7 @@ class MPC4Agent(agent.Agent):
         self.time = None
         self.steps_within_radius = 0
 
-        using_Q_function = False
+        using_Q_function = True
 
         if using_Q_function:
             self.num_wind_levels = 181
