@@ -21,7 +21,7 @@ import enum
 from typing import Optional, Sequence, Union
 from balloon_learning_environment.env.wind_field import WindField
 from balloon_learning_environment.env.balloon import standard_atmosphere
-from flax.metrics import tensorboard
+# from flax.metrics import tensorboard
 import numpy as np
 
 
@@ -95,7 +95,7 @@ class Agent(abc.ABC):
     """
 
   def set_summary_writer(
-      self, summary_writer: Optional[tensorboard.SummaryWriter]) -> None:
+      self, summary_writer) -> None:
     """Sets a summary writer for logging to tensorboard."""
     self.summary_writer = summary_writer
 
