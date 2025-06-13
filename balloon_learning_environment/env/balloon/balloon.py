@@ -326,8 +326,22 @@ class Balloon:
         f'The outer simulation stride (time_delta={time_delta}) must be a '
         f'multiple of the inner simulation stride (stride={stride})')
 
+
+    simulation_steps = outer_stride // inner_stride
+
+    # this will quantize the continuous actions to discrete ones instead of using 
+    # modified dynamics
+    _use_quantized_actions = False
+    if not using_discrete and _use_quantized_actions: # if continuous then calculate relevant values for quantized actions
+      # calculate the number of steps of up/down to take to approximate the continuous action
+      _quantized_action = control.AltitudeControlCommand.UP if action > 0 else control.AltitudeControlCommand.DOWN
+      _quantized_steps = min((abs(action) * outer_stride)//inner_stride, simulation_steps)
+
+      print(f'using discrete actions, converting {action} into {_quantized_steps} steps of {_quantized_action} out of {simulation_steps} total steps')
+        
+
     # print('running', outer_stride // inner_stride, 'times')
-    for _ in range(outer_stride // inner_stride):
+    for _ in range(simulation_steps):
 
       # Choose which dynamics to use based on action type
       if using_discrete:
@@ -344,6 +358,16 @@ class Balloon:
         #   self.state, wind_vector, atmosphere, continuous_action, stride)
 
         # NOTE: they seem to be equivalent (after testing some seeds)
+
+      elif _use_quantized_actions:
+        # print('doing discrete dynamics')
+        # NOTE: this version uses the quantized actions
+
+        action_to_run = _quantized_action if _quantized_steps > 0 else control.AltitudeControlCommand.STAY
+        state_changes = _simulate_step_internal(
+            self.state, wind_vector, atmosphere, action_to_run, stride)
+
+        _quantized_steps -= 1
 
       else:
         # print('doing continuous dynamics')

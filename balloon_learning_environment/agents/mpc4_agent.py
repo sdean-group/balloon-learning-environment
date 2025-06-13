@@ -1,5 +1,6 @@
 import scipy.interpolate
 from balloon_learning_environment.agents import agent, opd
+from balloon_learning_environment.env.balloon.control import AltitudeControlCommand
 from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
 from balloon_learning_environment.env.wind_field import JaxWindField
 from balloon_learning_environment.env.balloon.standard_atmosphere import JaxAtmosphere
@@ -216,6 +217,28 @@ class MPC4Agent(agent.Agent):
             self.terminal_cost_fn = QTerminalCost(self.num_wind_levels, params)
         else:
             self.terminal_cost_fn = NoTerminalCost()
+        
+        self.discretize_action = False
+        self.discretization_cutoff = 0.25
+
+    def _get_current_action(self):
+        action = self.plan[self.i].item() if self.plan is not None else 0.0
+        if not self.discretize_action:
+            # print('using continuous action:', action)
+            return action
+
+        # print('discretizing action with cutoff:', self.discretization_cutoff)
+        if action > self.discretization_cutoff:
+            return AltitudeControlCommand.UP
+        elif action < -self.discretization_cutoff:
+            return AltitudeControlCommand.DOWN
+        else:
+            return AltitudeControlCommand.STAY
+        
+        # TODO: this is basic discretization,
+
+        
+
 
     def _deadreckon(self):
         # wind_vector = self.ble_forecast.get_forecast(
@@ -327,9 +350,7 @@ class MPC4Agent(agent.Agent):
         self._deadreckon()
         # print(time.time() - b4, 's to deadreckon ballooon')
 
-        action = self.plan[self.i]
-        # print('action', action)
-        return action.item()
+        return self._get_current_action()
 
     def step(self, reward: float, observation: np.ndarray) -> int:
         REPLANNING = True
@@ -339,8 +360,7 @@ class MPC4Agent(agent.Agent):
         # print(observation.battery_charge/observation.battery_capacity)
         if not REPLANNING:
             self._deadreckon()
-            action = self.plan[self.i]
-            return action.item()
+            return self._get_current_action()
         else:
             
             N = min(len(self.plan), 23)
@@ -354,9 +374,7 @@ class MPC4Agent(agent.Agent):
             else:
                 # print('not replanning')
                 self._deadreckon()
-                action = self.plan[self.i]
-                # print('action', action)
-                return action.item()
+                return self._get_current_action()
             
     def write_diagnostics_start(self, observation, diagnostics):
         if 'mpc4_agent' not in diagnostics:
