@@ -20,6 +20,12 @@ def sigmoid(x):
     return 2 / (1 + jnp.exp(-x)) - 1
 
 def jax_balloon_cost(balloon: JaxBalloon):
+    # COST FUNCTION SIMILAR TO THAT PRESENT IN 	arXiv:2403.10784, but provided similar 
+    # performance. We cannot take advantage of the dropoff term because we have a continuous 
+    # cost.
+    # d = jnp.sqrt((balloon.state.x/1000)**2 + (balloon.state.y/1000)**2)
+    # return jnp.exp((d-100)/20)
+    
     r_2 = (balloon.state.x/1000)**2 + (balloon.state.y/1000)**2
     
     soc = balloon.state.battery_charge / balloon.state.battery_capacity
