@@ -116,6 +116,8 @@ class EvaluationResult:
             f'cumulative_reward={self.cumulative_reward}, '
             f'time_within_radius={self.time_within_radius}, '
             f'out_of_power={self.out_of_power}, '
+            f'envelope_burst={self.envelope_burst}, '
+            f'zeropressure={self.zeropressure}, '
             f'final_timestep={self.final_timestep})')
 
 

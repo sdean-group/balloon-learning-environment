@@ -38,6 +38,13 @@ _eval_suites = dict()
 
 _eval_suites['big_eval'] = EvaluationSuite(list(range(10_000)), 960)
 _eval_suites['medium_eval'] = EvaluationSuite(list(range(1_000)), 960)
+for i in range(0, 100):
+  _eval_suites[f'medium_eval{i}'] = EvaluationSuite(list(range(1000*i, 1000*(i+1))), 960)
+
+for i in range(0, 100):
+  _eval_suites[f'train_medium_eval{i}'] = EvaluationSuite(list(range(10_000 + 1000*i, 10_000 + 1000*(i+1))), 960)
+
+
 _eval_suites['small_eval'] = EvaluationSuite(list(range(100)), 960)
 for i in range(0, 100):
   _eval_suites[f'small_eval{i}'] = EvaluationSuite(list(range(100*i , 100*(i+1))), 960)
@@ -61,10 +68,6 @@ _eval_suites['dies'] = EvaluationSuite([4, 11, 19, 39], 960)
 _eval_suites['micro_eval_short'] = EvaluationSuite([0], 240)
 _eval_suites['new_eval_short'] = EvaluationSuite([0, 2, 3, 4, 5, 8, 20, 21, 22], 240)
 
-_eval_suites['small_training_data'] = EvaluationSuite(list(range(10_000, 10_100)), 960)
-_eval_suites['small_validation_data'] = EvaluationSuite(list(range(11_000, 11_010)), 960)
-_eval_suites['training_data'] = EvaluationSuite(list(range(10_000, 11_000)), 960)
-_eval_suites['validation_data'] = EvaluationSuite(list(range(11_000, 11_250)), 960)
 
 # NOTE: this is to compare what q values on a hard seed with bad states / low reward 
 # vs a good seed with good states / high reward
