@@ -181,6 +181,28 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
     
     return inverse_sigmoid(np.array(plans))
 
+def get_initial_plan(balloon: JaxBalloon, num_plans, forecast: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, plan_steps, time_delta, stride, plan):
+    initial_plans = get_initial_plans(balloon, num_plans, forecast, atmosphere, plan_steps, time_delta, stride)
+    
+    batched_cost = []
+    for i in range(len(initial_plans)):
+        batched_cost.append(jax_plan_cost(initial_plans[i], balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride))
+    
+    min_index_so_far = np.argmin(batched_cost)
+    min_value_so_far = batched_cost[min_index_so_far]
+
+    initial_plan = initial_plans[min_index_so_far]
+    if plan is not None and jax_plan_cost(plan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride) < min_value_so_far:
+        print('Using the previous optimized plan as initial plan')
+        initial_plan = plan
+
+    coast = inverse_sigmoid(np.random.uniform(-0.2, 0.2, size=(plan_steps, )))
+    if jax_plan_cost(coast, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride) < min_value_so_far:
+        print('Using the nothing plan as initial plan')
+        initial_plan = coast
+
+    return initial_plan
+
 
 @partial(jax.jit, static_argnums=(5, 6))
 @partial(jax.grad, argnums=0)
@@ -305,27 +327,7 @@ class MPC4Agent(agent.Agent):
             initial_plan =  opd.get_plan_from_opd_node(best_node, search_delta_time=search_delta_time, plan_delta_time=self.time_delta)
 
         elif initialization_type == 'best_altitude':
-            initial_plans = get_initial_plans(self.balloon, 100, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
-            
-            batched_cost = []
-            for i in range(len(initial_plans)):
-                # tmp = jax.make_jaxpr(jax_plan_cost, static_argnums=(5, 6))(initial_plans[i], self.balloon, self.forecast, self.atmosphere, self.terminal_cost_fn, self.time_delta, self.stride)
-                # print(tmp)
-
-                batched_cost.append(jax_plan_cost(initial_plans[i], self.balloon, self.forecast, self.atmosphere, self.terminal_cost_fn, self.time_delta, self.stride))
-            
-            min_index_so_far = np.argmin(batched_cost)
-            min_value_so_far = batched_cost[min_index_so_far]
-
-            initial_plan = initial_plans[min_index_so_far]
-            if self.plan is not None and jax_plan_cost(self.plan, self.balloon, self.forecast, self.atmosphere, self.terminal_cost_fn, self.time_delta, self.stride) < min_value_so_far:
-                print('Using the previous optimized plan as initial plan')
-                initial_plan = self.plan
-
-            coast = inverse_sigmoid(np.random.uniform(-0.2, 0.2, size=(self.plan_steps, )))
-            if jax_plan_cost(coast, self.balloon, self.forecast, self.atmosphere, self.terminal_cost_fn, self.time_delta, self.stride) < min_value_so_far:
-                print('Using the nothing plan as initial plan')
-                initial_plan = coast
+            initial_plan = get_initial_plan(self.balloon, 100, self.forecast, self.atmosphere, self.terminal_cost_fn, self.plan_steps, self.time_delta, self.stride)
 
         elif initialization_type == 'random':
             initial_plan = np.random.uniform(-1.0, 1.0, size=(self.plan_steps, ))
