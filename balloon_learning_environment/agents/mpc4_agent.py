@@ -331,7 +331,7 @@ class MPC4Agent(agent.Agent):
             initial_plan =  opd.get_plan_from_opd_node(best_node, search_delta_time=search_delta_time, plan_delta_time=self.time_delta)
 
         elif initialization_type == 'best_altitude':
-            initial_plan = get_initial_plan(self.balloon, 100, self.forecast, self.atmosphere, self.terminal_cost_fn, self.plan_steps, self.time_delta, self.stride)
+            initial_plan = get_initial_plan(self.balloon, 100, self.forecast, self.atmosphere, self.terminal_cost_fn, self.plan_steps, self.time_delta, self.stride, self.plan)
 
         elif initialization_type == 'random':
             initial_plan = np.random.uniform(-1.0, 1.0, size=(self.plan_steps, ))
