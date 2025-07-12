@@ -1,6 +1,7 @@
 import random
 import gym
 import numpy as np
+from typing import Union, Tuple
 
 # BLE stuff
 from balloon_learning_environment.env.balloon_env import BalloonEnv
@@ -15,9 +16,27 @@ from balloon_learning_environment.env.balloon.balloon import BalloonState
 from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
 from balloon_learning_environment.env.wind_field import JaxWindField
 from balloon_learning_environment.env.balloon.standard_atmosphere import JaxAtmosphere
-from balloon_learning_environment.agents.mpc4_agent import get_initial_plan, grad_descent_optimizer, TerminalCost, get_dplan
+from balloon_learning_environment.agents.mpc4_agent import get_initial_plan, grad_descent_optimizer, TerminalCost, get_dplan, jax_plan_cost
+
+# Neural Network Parameters
+import equinox as eqx
+import optax
 
 ### Tunable Parameters ###
+
+"""
+🎯 Concrete starting point for your case
+Param	Value
+Z	23 (update every replan) or 46 (every other replan)
+G	10 (frequent updates) to 25 (less frequent updates)
+H	24 (aim to reduce counterfactual tail issues)
+N	12 (focus value function training on near-future that’s better predicted)
+
+🚀 Pro tip: monitor ensemble disagreement + reward variance
+If you see high disagreement growing at H’s tail → shorten H or downweight terminal cost
+
+If value targets have high variance → shorten N
+"""
 
 # MPC settings
 
@@ -31,7 +50,8 @@ mpc_initialization_num_plans = 100
 
 # POLO Settings
 
-ensemble_size = 8
+polo_ensemble_size = 8
+polo_value_update_frequency = 16
 
 # Training parameters
 
@@ -39,9 +59,10 @@ training_seeds = list(range(10_000, 11_000))
 validation_seeds = list(range(11_000, 11_100))
 
 training_num_episodes = 1000
-training_max_episode_length = 1000
+training_max_episode_length = 960
 
-training_gradient_steps = 25 # because we are replanning less frequently
+training_num_gradient_steps = 25 # because we are replanning less frequently
+training_batch_size = 128
 
 ### Helper Functions ###
 
@@ -61,7 +82,9 @@ class StateAsFeature(FeatureConstructor):
         return gym.Space() # This function isn't called so this baseclass can be used
 
 
-def get_optimized_plan(balloon: JaxBalloon, forecast: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, previous_plan=None):
+def get_optimized_plan(balloon_state: JaxBalloonState, forecast: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, previous_plan=None, return_cost=False):
+    balloon = JaxBalloon()
+    
     initial_plan = get_initial_plan(
         balloon,
         mpc_initialization_num_plans, 
@@ -73,7 +96,7 @@ def get_optimized_plan(balloon: JaxBalloon, forecast: JaxWindField, atmosphere: 
         stride, 
         previous_plan)
 
-    plan = grad_descent_optimizer(
+    results: Union[np.ndarray, Tuple[np.ndarray, float]] = grad_descent_optimizer(
         initial_plan,
         get_dplan,
         balloon,
@@ -81,22 +104,45 @@ def get_optimized_plan(balloon: JaxBalloon, forecast: JaxWindField, atmosphere: 
         atmosphere,
         terminal_cost_fn,
         time_delta,
-        stride)
+        stride,
+        return_cost)
 
-    return plan
+    return results
 
 ### Model definition ###
 
+
+def compute_feature_vector(balloon: JaxBalloon, wind_forecast: JaxWindField):
+    # NOTE: needs to be jax compatible
+    pass
+
 class ValueNetwork:
+    # NOTE: must be callable within a jax jit/grad block of code
+    # NOTE: implement with equinox?
     pass
 
 class EnsembleTerminalCost(TerminalCost):
+    """ Uses an ensemble of value networks to calculate terminal cost """
     def __init__(self, ensemble: list[ValueNetwork]):
+        pass
+
+    def __call__(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
+        # NOTE: call compute feature vector here, then combine the ensemble networks
+        pass
+
+class ValueTerminalCost(TerminalCost):
+    """ Use a single value network as a terminal cost """
+    def __init__(self, network: ValueNetwork):
+        pass
+
+    def __call__(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
+        # NOTE: call compute_feature_vector here
         pass
 
 ### Training loop ###
 
-ensemble = [ ValueNetwork() for _ in range(ensemble_size) ]
+ensemble = [ ValueNetwork() for _ in range(polo_ensemble_size) ]
+D: list[JaxBalloonState] = []
 
 for episode in range(training_num_episodes):
     # Sample seed randomly from the training seeds
@@ -112,15 +158,31 @@ for episode in range(training_num_episodes):
     # NOTE: call arena.reset to get initial observation
 
     plan = None # Initialize plan variable, potentially re-use across iterations based on replan frequency
+    plan_idx = 0
 
     for t in range(training_max_episode_length):
-        jax_balloon = JaxBalloon(JaxBalloonState.from_ble_state(arena.get_balloon_state()))
+        jax_balloon_state = arena.get_balloon_state().to_jax_balloon_state()
         ensemble_value_fn = EnsembleTerminalCost(ensemble) # NOTE: this is recreated every time so it should just be a light wrapper around ensemble to weighted softmax for terminal cost
 
         # Generate a new MPC plan if it's the first step or if we need to replan
         if t % mpc_replan_frequency == 0:
-            plan = get_optimized_plan(jax_balloon, jax_forecast, jax_atmosphere, ensemble_value_fn, plan)
+            plan = get_optimized_plan(jax_balloon_state, jax_forecast, jax_atmosphere, ensemble_value_fn, plan)
+            plan_idx = 0
 
-        # TODO: collect next state and store in buffer
-        # TODO: collect rollouts from start states and train value functions
+        s_next = arena.step(plan[plan_idx]).to_jax_balloon_state() # NOTE: we sample real transitions here (arena.step calculated the real wind)
+        plan_idx += 1
+        D.append(s_next)
 
+        if t % polo_value_update_frequency == 0:
+            for g in range(training_num_gradient_steps):
+                batch: list[JaxBalloonState] = random.sample(D, min(len(D), training_batch_size))
+
+                for k in range(len(ensemble)):
+                    targets = []
+
+                    for s_i in batch:
+                        
+                        plan_i, cost_i = get_optimized_plan(s_i, jax_forecast, jax_atmosphere, ValueTerminalCost(ensemble[k]), previous_plan=None, return_cost=True)
+                        targets.append(cost_i)
+                    
+                    # TODO: calculate loss function and update ensemble[k]
