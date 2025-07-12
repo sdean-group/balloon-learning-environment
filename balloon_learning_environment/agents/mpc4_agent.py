@@ -107,7 +107,7 @@ def jax_plan_cost_no_jit(plan, balloon: JaxBalloon, wind_field: JaxWindField, at
     terminal_cost = (discount_factor**len(plan)) * (jax_balloon_cost(final_balloon) + terminal_cost_fn(final_balloon, wind_field))
     return cost + terminal_cost
 
-def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride):
+def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride, return_cost = False):
     start_cost = jax_plan_cost(initial_plan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride)
     plan = initial_plan
     for gradient_steps in range(100):
@@ -120,7 +120,11 @@ def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosph
 
     after_cost = jax_plan_cost(plan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride)
     print("GD", gradient_steps, f"∆cost = {after_cost} - {start_cost} = {after_cost - start_cost}")
-    return plan
+    
+    if return_cost:
+        return plan, after_cost
+    else:
+        return plan
 
 np.random.seed(seed=42)
 def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, atmosphere: JaxAtmosphere, plan_steps, time_delta, stride):
