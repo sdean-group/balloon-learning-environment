@@ -55,6 +55,7 @@ from balloon_learning_environment.env.balloon import power_safety
 from balloon_learning_environment.env.balloon import solar
 from balloon_learning_environment.env.balloon import standard_atmosphere
 from balloon_learning_environment.env.balloon import thermal
+from balloon_learning_environment.env.balloon import jax_balloon
 from balloon_learning_environment.utils import constants
 from balloon_learning_environment.utils import spherical_geometry
 from balloon_learning_environment.utils import units
@@ -250,6 +251,9 @@ class BalloonState(object):
   def pressure_ratio(self) -> float:
     superpressure = max(self.superpressure, 0.0)
     return (self.pressure + superpressure) / self.pressure
+  
+  def to_jax_balloon_state(self) -> jax_balloon.JaxBalloonState:
+    return jax_balloon.JaxBalloonState.from_ble_state(self)
 
 
 class Balloon:
