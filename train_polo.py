@@ -161,7 +161,7 @@ for episode in range(training_num_episodes):
     plan_idx = 0
 
     for t in range(training_max_episode_length):
-        jax_balloon_state = arena.get_balloon_state().to_jax_balloon_state()
+        jax_balloon_state = JaxBalloonState.from_ble_state(arena.get_balloon_state())
         ensemble_value_fn = EnsembleTerminalCost(ensemble) # NOTE: this is recreated every time so it should just be a light wrapper around ensemble to weighted softmax for terminal cost
 
         # Generate a new MPC plan if it's the first step or if we need to replan
@@ -169,7 +169,7 @@ for episode in range(training_num_episodes):
             plan = get_optimized_plan(jax_balloon_state, jax_forecast, jax_atmosphere, ensemble_value_fn, plan)
             plan_idx = 0
 
-        s_next = arena.step(plan[plan_idx]).to_jax_balloon_state() # NOTE: we sample real transitions here (arena.step calculated the real wind)
+        s_next = JaxBalloonState.from_ble_state(arena.step(plan[plan_idx])) # NOTE: we sample real transitions here (arena.step calculated the real wind)
         plan_idx += 1
         D.append(s_next)
 
