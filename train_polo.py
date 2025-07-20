@@ -1,26 +1,29 @@
+import copy
 import random
 import gym
 import numpy as np
 from typing import Union, Tuple
+import jax
+import jax.numpy as jnp
+import optax
+import equinox as eqx
+import datetime as dt
 
 # BLE stuff
 from balloon_learning_environment.env.balloon_env import BalloonEnv
+from balloon_learning_environment.utils import units
 from balloon_learning_environment.env.balloon_arena import BalloonArena
 from balloon_learning_environment.env import generative_wind_field
 from balloon_learning_environment.env.features import FeatureConstructor
 from balloon_learning_environment.env import wind_field, simulator_data
 from balloon_learning_environment.env.balloon import standard_atmosphere
-from balloon_learning_environment.env.balloon.balloon import BalloonState
+from balloon_learning_environment.env.balloon.balloon import BalloonState, Balloon
 
 # Jax BLE stuff
 from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
 from balloon_learning_environment.env.wind_field import JaxWindField
 from balloon_learning_environment.env.balloon.standard_atmosphere import JaxAtmosphere
-from balloon_learning_environment.agents.mpc4_agent import get_initial_plan, grad_descent_optimizer, TerminalCost, get_dplan, jax_plan_cost
-
-# Neural Network Parameters
-import equinox as eqx
-import optax
+from balloon_learning_environment.agents.mpc4_agent import get_initial_plan, grad_descent_optimizer, TerminalCost, get_dplan
 
 ### Tunable Parameters ###
 
@@ -53,10 +56,12 @@ mpc_initialization_num_plans = 100
 polo_ensemble_size = 8
 polo_value_update_frequency = 16
 
+polo_max_episode_length = 240
+
 # Training parameters
 
 training_seeds = list(range(10_000, 11_000))
-validation_seeds = list(range(11_000, 11_100))
+testing_seeds = list(range(11_000, 11_100))
 
 training_num_episodes = 1000
 training_max_episode_length = 960
@@ -67,6 +72,8 @@ training_batch_size = 128
 ### Helper Functions ###
 
 class StateAsFeature(FeatureConstructor):
+    """ this is a BLE class used to get the balloon environment to return balloon state state (as opposed to vector states) """
+
     def __init__(self,
                 forecast: wind_field.WindField,
                 atmosphere: standard_atmosphere.Atmosphere):
@@ -88,7 +95,8 @@ def get_balloon_arena(seed: int) -> BalloonArena:
     return arena
 
 def get_optimized_plan(balloon_state: JaxBalloonState, forecast: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, previous_plan=None, return_cost=False):
-    balloon = JaxBalloon()
+    """ Helper function to perform a trajectory optimization of a balloon in a wind field """
+    balloon = JaxBalloon(balloon_state)
     
     initial_plan = get_initial_plan(
         balloon,
@@ -113,6 +121,79 @@ def get_optimized_plan(balloon_state: JaxBalloonState, forecast: JaxWindField, a
         return_cost)
 
     return results
+
+def evaluate_plan_in_arena(plan: np.ndarray, balloon_state: BalloonState, arena: BalloonArena):
+    """ 
+    Helper function to evaluate a plan in a balloon arena WITH wind noise 
+    
+    balloon_state is the state you want to evaluate the plan from
+    arena is used to get the real wind 
+
+    Note: does not modify the arena object
+    Note: should return a list of states and then the caller can define the cost function? 
+        or pass in a cost function that takes in a list of states
+    Returns: final_balloon, total_steps_within_radius, total_steps, distances 
+    """    
+    balloon = Balloon(copy.deepcopy(balloon_state)) # NOTE: needs a copy of the balloon state because otherwise this method modifies the reference
+
+    steps_within_radius = 0
+    steps_completed = len(plan)
+
+    distances = []
+
+    for action in plan:
+        wind_vector = arena._wind_field.get_ground_truth(
+            balloon.state.x,
+            balloon.state.y,
+            balloon.state.pressure,
+            balloon.state.elapsed_time)
+
+        balloon.simulate_step(
+            wind_vector, 
+            arena._atmosphere, 
+            action, 
+            dt.timedelta(seconds=time_delta), 
+            dt.timedelta(seconds=stride))
+
+        if balloon.state.x.km**2 + balloon.state.y.km**2 < 50**2:
+            steps_within_radius += 1
+
+        distances.append(balloon.state.x.km**2 + balloon.state.y.km**2)
+
+    return balloon.state, steps_within_radius, steps_completed, distances
+
+def evaluate_mpc_performance(arena: BalloonArena, jax_forecast: JaxWindField, jax_atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost):
+    """ Helper function to evaluate MPC's performance in a balloon arena (e.g. how it would actually perform with wind noise) """
+    
+    # Initialize loop variables
+    previous_plan = None
+    balloon_state = None
+
+    # Performance
+    total_steps_within_radius = 0
+    total_steps_completed = 0
+
+    total_distance = 0
+    
+    while total_steps_completed < training_max_episode_length:
+        balloon_state = arena.get_balloon_state()
+        plan = get_optimized_plan(
+            JaxBalloonState.from_ble_state(balloon_state), 
+            jax_forecast, 
+            jax_atmosphere, 
+            terminal_cost_fn,
+            previous_plan)
+
+        balloon_state, steps_within_radius, steps_completed, distances = evaluate_plan_in_arena(plan[:mpc_replan_frequency], arena)
+        
+        which_steps = range(total_steps_completed, total_steps_completed + steps_completed)
+        total_distance += sum(distance * 0.99**step for distance, step in zip(distances, which_steps))
+        
+        total_steps_within_radius += steps_within_radius
+        total_steps_completed += steps_completed
+    
+    return total_distance, total_steps_within_radius / total_steps_completed
+
 
 ### Model definition ###
 
@@ -214,6 +295,19 @@ ensemble = [ ValueNetwork(key=jax.random.key(seed=seed), input_dim=vn_feature.nu
 D: list[JaxBalloonState] = []
 
 for episode in range(training_num_episodes):
+    print("Episode", episode)
+    
+    # Evaluate performance of MPC with ensemble terminal cost on testing seeds
+    if episode % 10 == 0:
+        print(f"Evaluating performance on testing seeds at episode {episode}")
+        ensemble_value_fn = EnsembleTerminalCost(vn_feature, ensemble)
+
+        for seed in testing_seeds:
+            arena = get_balloon_arena(seed)
+            jax_forecast, jax_atmosphere = arena._wind_field.to_jax_wind_field(), arena._atmosphere.to_jax_atmosphere()
+
+            twr, cost = evaluate_mpc_performance(arena, jax_forecast, jax_atmosphere, ensemble_value_fn)
+
     # Sample seed randomly from the training seeds
     seed = random.choice(training_seeds)
     print(f"Training episode {episode + 1}/{training_num_episodes} with seed {seed}")
@@ -251,8 +345,6 @@ for episode in range(training_num_episodes):
                     for s_i in state_batch:
                         plan_i = get_optimized_plan(s_i, jax_forecast, jax_atmosphere, ValueTerminalCost(ensemble[k]), previous_plan=None)
                         
-                        plan_i, cost_i = get_optimized_plan(s_i, jax_forecast, jax_atmosphere, ValueTerminalCost(ensemble[k]), previous_plan=None, return_cost=True)
-                        targets.append(cost_i)
                     
                     ensemble[k].update(feature_batch, targets)
 
