@@ -81,6 +81,11 @@ class StateAsFeature(FeatureConstructor):
     def observation_space(self) -> gym.Space:
         return gym.Space() # This function isn't called so this baseclass can be used
 
+def get_balloon_arena(seed: int) -> BalloonArena:
+    feature_constructor_factory = lambda forecast, atmosphere: StateAsFeature(forecast, atmosphere) 
+    wind_field_factory = generative_wind_field.generative_wind_field_factory
+    arena = BalloonArena(feature_constructor_factory, wind_field_factory(), seed=seed)
+    return arena
 
 def get_optimized_plan(balloon_state: JaxBalloonState, forecast: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, previous_plan=None, return_cost=False):
     balloon = JaxBalloon()
@@ -111,19 +116,82 @@ def get_optimized_plan(balloon_state: JaxBalloonState, forecast: JaxWindField, a
 
 ### Model definition ###
 
+class ValueNetwork(eqx.Module):
+    """ A value network to be trained in the POLO framework. """
+    residual: eqx.nn.MLP
+    prior: eqx.nn.MLP
+    optimizer: optax.GradientTransformation
+    opt_state: optax.OptState
 
-def compute_feature_vector(balloon: JaxBalloon, wind_forecast: JaxWindField):
-    # NOTE: needs to be jax compatible
-    pass
+    def __init__(self, key, input_dim=5, hidden_dim=128, lr=1e-3):
+        key_res, key_prior = jax.random.split(key)
+        self.residual = eqx.nn.MLP(input_dim, 1, hidden_dim, depth=2, key=key_res)
+        self.prior = eqx.nn.MLP(input_dim, 1, hidden_dim, depth=2, key=key_prior)
 
-class ValueNetwork:
-    # NOTE: must be callable within a jax jit/grad block of code
-    # NOTE: implement with equinox?
-    pass
+        self.optimizer = optax.adam(lr)
+        self.opt_state = self.optimizer.init(eqx.filter(self.residual, eqx.is_array))
+
+    def __call__(self, x):
+        # Predict total value = prior + residual
+        prior_val = self.prior(x)
+        resid_val = jnp.squeeze(self.residual(x), axis=-1)
+        return prior_val + resid_val
+
+    def randomized_prior_loss(self, x, y):
+        # loss = (y - (prior + residual))^2
+        pred = self.__call__(x)
+        return jnp.mean((pred - y) ** 2)
+
+    def update(self, x, y):
+        loss_fn = lambda p: self.randomized_prior_loss(x, y)
+        grads = jax.grad(loss_fn)(eqx.filter(self.residual, eqx.is_array))
+        updates, new_opt_state = self.optimizer.update(grads, self.opt_state)
+        self.residual = eqx.apply_updates(self.residual, updates)
+        self.opt_state = new_opt_state
+
+
+class ValueNetworkFeature:
+    """ interface for computing feature vectors given a balloon and wind forecast for a value network """
+
+    def __init__(self):
+        pass
+
+    @property
+    def num_input_dimensions(self):
+        raise NotImplementedError('Implement num_input_dimensions')
+
+    def compute(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
+        raise NotImplementedError('Implement computing')
+
+class BasicValueNetworkFeature(ValueNetworkFeature):
+    """ this is for testing that all the jax features work """
+    def __init__(self): pass
+
+    @property
+    def num_input_dimensions(self):
+        return 5
+
+    def compute(self, balloon_state: JaxBalloonState, wind_forecast: JaxWindField) -> jnp.ndarray:
+        wind_vector = wind_forecast.get_forecast(balloon_state.x/1000, balloon_state.y/1000, balloon_state.pressure, balloon_state.time_elapsed)
+        return jnp.array([ 
+            balloon_state.x/1000, 
+            balloon_state.y/1000, 
+            balloon_state.pressure, 
+            wind_vector[0], 
+            wind_vector[1] ])
+
+
+class SpatialAveragingFeature(ValueNetworkFeature):
+    @property
+    def num_input_dimensions(self):
+        raise NotImplementedError('Implement num_input_dimensions')
+
+    def compute(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
+        raise NotImplementedError('Implement computing')
 
 class EnsembleTerminalCost(TerminalCost):
     """ Uses an ensemble of value networks to calculate terminal cost """
-    def __init__(self, ensemble: list[ValueNetwork]):
+    def __init__(self, vn_feature: ValueNetworkFeature, ensemble: list[ValueNetwork]):
         pass
 
     def __call__(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
@@ -132,7 +200,7 @@ class EnsembleTerminalCost(TerminalCost):
 
 class ValueTerminalCost(TerminalCost):
     """ Use a single value network as a terminal cost """
-    def __init__(self, network: ValueNetwork):
+    def __init__(self, vn_feature: ValueNetworkFeature, network: ValueNetwork):
         pass
 
     def __call__(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
@@ -140,8 +208,9 @@ class ValueTerminalCost(TerminalCost):
         pass
 
 ### Training loop ###
-
-ensemble = [ ValueNetwork() for _ in range(polo_ensemble_size) ]
+# if __name__ == "__main__":
+vn_feature = BasicValueNetworkFeature()
+ensemble = [ ValueNetwork(key=jax.random.key(seed=seed), input_dim=vn_feature.num_input_dimensions) for seed in range(polo_ensemble_size) ]
 D: list[JaxBalloonState] = []
 
 for episode in range(training_num_episodes):
@@ -150,9 +219,7 @@ for episode in range(training_num_episodes):
     print(f"Training episode {episode + 1}/{training_num_episodes} with seed {seed}")
 
     # Create balloon and wind field from seed
-    feature_constructor_factory = lambda forecast, atmosphere: StateAsFeature(forecast, atmosphere) 
-    wind_field_factory = generative_wind_field.generative_wind_field_factory
-    arena = BalloonArena(feature_constructor_factory, wind_field_factory(), seed=seed)
+    arena = get_balloon_arena(seed)
     jax_forecast, jax_atmosphere = arena._wind_field.to_jax_wind_field(), arena._atmosphere.to_jax_atmosphere()
     # NOTE: starting position of balloon will be the same for a seed, so the balloon will always start at the same position given a seed
     # NOTE: call arena.reset to get initial observation
@@ -175,14 +242,19 @@ for episode in range(training_num_episodes):
 
         if t % polo_value_update_frequency == 0:
             for g in range(training_num_gradient_steps):
-                batch: list[JaxBalloonState] = random.sample(D, min(len(D), training_batch_size))
+                state_batch: list[JaxBalloonState] = random.sample(D, min(len(D), training_batch_size))
+                feature_batch = [vn_feature.compute(state, jax_forecast) for state in state_batch]
 
                 for k in range(len(ensemble)):
                     targets = []
 
-                    for s_i in batch:
+                    for s_i in state_batch:
+                        plan_i = get_optimized_plan(s_i, jax_forecast, jax_atmosphere, ValueTerminalCost(ensemble[k]), previous_plan=None)
                         
                         plan_i, cost_i = get_optimized_plan(s_i, jax_forecast, jax_atmosphere, ValueTerminalCost(ensemble[k]), previous_plan=None, return_cost=True)
                         targets.append(cost_i)
                     
-                    # TODO: calculate loss function and update ensemble[k]
+                    ensemble[k].update(feature_batch, targets)
+
+
+                
