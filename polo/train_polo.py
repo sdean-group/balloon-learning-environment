@@ -197,38 +197,7 @@ def evaluate_mpc_performance(arena: BalloonArena, jax_forecast: JaxWindField, ja
 
 ### Model definition ###
 
-class ValueNetwork(eqx.Module):
-    """ A value network to be trained in the POLO framework. """
-    residual: eqx.nn.MLP
-    prior: eqx.nn.MLP
-    optimizer: optax.GradientTransformation
-    opt_state: optax.OptState
-
-    def __init__(self, key, input_dim=5, hidden_dim=128, lr=1e-3):
-        key_res, key_prior = jax.random.split(key)
-        self.residual = eqx.nn.MLP(input_dim, 1, hidden_dim, depth=2, key=key_res)
-        self.prior = eqx.nn.MLP(input_dim, 1, hidden_dim, depth=2, key=key_prior)
-
-        self.optimizer = optax.adam(lr)
-        self.opt_state = self.optimizer.init(eqx.filter(self.residual, eqx.is_array))
-
-    def __call__(self, x):
-        # Predict total value = prior + residual
-        prior_val = self.prior(x)
-        resid_val = jnp.squeeze(self.residual(x), axis=-1)
-        return prior_val + resid_val
-
-    def randomized_prior_loss(self, x, y):
-        # loss = (y - (prior + residual))^2
-        pred = self.__call__(x)
-        return jnp.mean((pred - y) ** 2)
-
-    def update(self, x, y):
-        loss_fn = lambda p: self.randomized_prior_loss(x, y)
-        grads = jax.grad(loss_fn)(eqx.filter(self.residual, eqx.is_array))
-        updates, new_opt_state = self.optimizer.update(grads, self.opt_state)
-        self.residual = eqx.apply_updates(self.residual, updates)
-        self.opt_state = new_opt_state
+from .value_network import ValueNetwork
 
 
 class ValueNetworkFeature:
@@ -291,7 +260,7 @@ class ValueTerminalCost(TerminalCost):
 ### Training loop ###
 # if __name__ == "__main__":
 vn_feature = BasicValueNetworkFeature()
-ensemble = [ ValueNetwork(key=jax.random.key(seed=seed), input_dim=vn_feature.num_input_dimensions) for seed in range(polo_ensemble_size) ]
+ensemble = [ ValueNetwork.create(key=jax.random.key(seed=seed), input_dim=vn_feature.num_input_dimensions) for seed in range(polo_ensemble_size) ]
 D: list[JaxBalloonState] = []
 
 for episode in range(training_num_episodes):
