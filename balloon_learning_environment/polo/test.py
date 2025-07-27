@@ -140,15 +140,16 @@ def test_terminal_cost():
         total_cost = total_cost + terminal_cost_fn(final_balloon, jax_forecast)
         return total_cost
 
-    grad = eqx.filter_jit(eqx.filter_grad(cost_fn))
+    cost_and_grad = eqx.filter_jit(eqx.filter_value_and_grad(cost_fn))
 
     plan = sigmoid(jnp.array([ 0.1, -0.1, 0.05, -0.05, 0.1]))
     for i in range(10):
         # NOTE: this loop was sensitive to learning rate (in terms of not getting any issues, should pay attention for that in the real code)
-        plan_delta = grad(plan, jax_balloon, jax_forecast, jax_atmosphere, terminal_cost)
-        print('Cost:', cost_fn(sigmoid(plan), jax_balloon, jax_forecast, jax_atmosphere, terminal_cost), 'Plan:', inverse_sigmoid(plan), 'Plan delta:', plan_delta)
+        cost, plan_delta = cost_and_grad(plan, jax_balloon, jax_forecast, jax_atmosphere, terminal_cost)
+        print('Cost:', cost, 'Plan:', inverse_sigmoid(plan), 'Plan delta:', plan_delta)
         plan -= 0.001 * plan_delta
-    print(cost_fn(plan, jax_balloon, jax_forecast, jax_atmosphere, terminal_cost))
+    cost, plan_delta = cost_and_grad(plan, jax_balloon, jax_forecast, jax_atmosphere, terminal_cost)
+    print('Cost:', cost, 'Plan:', inverse_sigmoid(plan), 'Plan delta:', plan_delta)
 
     # Assert that the final plan does not have NaN values
     assert not jnp.any(jnp.isnan(plan)), "Plan contains NaN values after optimization"
