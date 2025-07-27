@@ -25,6 +25,8 @@ from balloon_learning_environment.env.wind_field import JaxWindField
 from balloon_learning_environment.env.balloon.standard_atmosphere import JaxAtmosphere
 from balloon_learning_environment.agents.mpc4_agent import get_initial_plan, grad_descent_optimizer, TerminalCost, get_dplan
 
+
+from .utils import get_balloon_arena
 ### Tunable Parameters ###
 
 """
@@ -70,29 +72,6 @@ training_num_gradient_steps = 25 # because we are replanning less frequently
 training_batch_size = 128
 
 ### Helper Functions ###
-
-class StateAsFeature(FeatureConstructor):
-    """ this is a BLE class used to get the balloon environment to return balloon state state (as opposed to vector states) """
-
-    def __init__(self,
-                forecast: wind_field.WindField,
-                atmosphere: standard_atmosphere.Atmosphere):
-        self.observation = None
-
-    def observe(self, observation: simulator_data.SimulatorObservation):
-        self.observation = observation
-
-    def get_features(self) -> BalloonState: # This function usually returns a numpy array, but we return BalloonState directly
-        return self.observation.balloon_observation
-
-    def observation_space(self) -> gym.Space:
-        return gym.Space() # This function isn't called so this baseclass can be used
-
-def get_balloon_arena(seed: int) -> BalloonArena:
-    feature_constructor_factory = lambda forecast, atmosphere: StateAsFeature(forecast, atmosphere) 
-    wind_field_factory = generative_wind_field.generative_wind_field_factory
-    arena = BalloonArena(feature_constructor_factory, wind_field_factory(), seed=seed)
-    return arena
 
 def get_optimized_plan(balloon_state: JaxBalloonState, forecast: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, previous_plan=None, return_cost=False):
     """ Helper function to perform a trajectory optimization of a balloon in a wind field """
@@ -196,40 +175,8 @@ def evaluate_mpc_performance(arena: BalloonArena, jax_forecast: JaxWindField, ja
 
 
 ### Model definition ###
-
 from .value_network import ValueNetwork
-
-
-class ValueNetworkFeature:
-    """ interface for computing feature vectors given a balloon and wind forecast for a value network """
-
-    def __init__(self):
-        pass
-
-    @property
-    def num_input_dimensions(self):
-        raise NotImplementedError('Implement num_input_dimensions')
-
-    def compute(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
-        raise NotImplementedError('Implement computing')
-
-class BasicValueNetworkFeature(ValueNetworkFeature):
-    """ this is for testing that all the jax features work """
-    def __init__(self): pass
-
-    @property
-    def num_input_dimensions(self):
-        return 5
-
-    def compute(self, balloon_state: JaxBalloonState, wind_forecast: JaxWindField) -> jnp.ndarray:
-        wind_vector = wind_forecast.get_forecast(balloon_state.x/1000, balloon_state.y/1000, balloon_state.pressure, balloon_state.time_elapsed)
-        return jnp.array([ 
-            balloon_state.x/1000, 
-            balloon_state.y/1000, 
-            balloon_state.pressure, 
-            wind_vector[0], 
-            wind_vector[1] ])
-
+from .value_network_feature import ValueNetworkFeature, BasicValueNetworkFeature
 
 class SpatialAveragingFeature(ValueNetworkFeature):
     @property
@@ -247,75 +194,70 @@ class EnsembleTerminalCost(TerminalCost):
     def __call__(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
         # NOTE: call compute feature vector here, then combine the ensemble networks
         pass
-
-class ValueTerminalCost(TerminalCost):
-    """ Use a single value network as a terminal cost """
-    def __init__(self, vn_feature: ValueNetworkFeature, network: ValueNetwork):
-        pass
-
-    def __call__(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
-        # NOTE: call compute_feature_vector here
-        pass
-
 ### Training loop ###
-# if __name__ == "__main__":
-vn_feature = BasicValueNetworkFeature()
-ensemble = [ ValueNetwork.create(key=jax.random.key(seed=seed), input_dim=vn_feature.num_input_dimensions) for seed in range(polo_ensemble_size) ]
-D: list[JaxBalloonState] = []
 
-for episode in range(training_num_episodes):
-    print("Episode", episode)
-    
-    # Evaluate performance of MPC with ensemble terminal cost on testing seeds
-    if episode % 10 == 0:
-        print(f"Evaluating performance on testing seeds at episode {episode}")
-        ensemble_value_fn = EnsembleTerminalCost(vn_feature, ensemble)
 
-        for seed in testing_seeds:
-            arena = get_balloon_arena(seed)
-            jax_forecast, jax_atmosphere = arena._wind_field.to_jax_wind_field(), arena._atmosphere.to_jax_atmosphere()
+if __name__ == "__main__":
+    vn_feature = BasicValueNetworkFeature()
+    ensemble = [ 
+        ValueNetwork.create(key=jax.random.key(seed=seed), input_dim=vn_feature.num_input_dimensions) 
+        for seed 
+        in range(polo_ensemble_size) ]
+    D: list[JaxBalloonState] = []
 
-            twr, cost = evaluate_mpc_performance(arena, jax_forecast, jax_atmosphere, ensemble_value_fn)
+    for episode in range(training_num_episodes):
+        print("Episode", episode)
+        
+        # Evaluate performance of MPC with ensemble terminal cost on testing seeds
+        if episode % 10 == 0:
+            print(f"Evaluating performance on testing seeds at episode {episode}")
+            ensemble_value_fn = EnsembleTerminalCost(vn_feature, ensemble)
 
-    # Sample seed randomly from the training seeds
-    seed = random.choice(training_seeds)
-    print(f"Training episode {episode + 1}/{training_num_episodes} with seed {seed}")
+            for seed in testing_seeds:
+                arena = get_balloon_arena(seed)
+                jax_forecast, jax_atmosphere = arena._wind_field.to_jax_wind_field(), arena._atmosphere.to_jax_atmosphere()
 
-    # Create balloon and wind field from seed
-    arena = get_balloon_arena(seed)
-    jax_forecast, jax_atmosphere = arena._wind_field.to_jax_wind_field(), arena._atmosphere.to_jax_atmosphere()
-    # NOTE: starting position of balloon will be the same for a seed, so the balloon will always start at the same position given a seed
-    # NOTE: call arena.reset to get initial observation
+                twr, cost = evaluate_mpc_performance(arena, jax_forecast, jax_atmosphere, ensemble_value_fn)
 
-    plan = None # Initialize plan variable, potentially re-use across iterations based on replan frequency
-    plan_idx = 0
+        # Sample seed randomly from the training seeds
+        seed = random.choice(training_seeds)
+        print(f"Training episode {episode + 1}/{training_num_episodes} with seed {seed}")
 
-    for t in range(training_max_episode_length):
-        jax_balloon_state = JaxBalloonState.from_ble_state(arena.get_balloon_state())
-        ensemble_value_fn = EnsembleTerminalCost(ensemble) # NOTE: this is recreated every time so it should just be a light wrapper around ensemble to weighted softmax for terminal cost
+        # Create balloon and wind field from seed
+        arena = get_balloon_arena(seed)
+        jax_forecast, jax_atmosphere = arena._wind_field.to_jax_wind_field(), arena._atmosphere.to_jax_atmosphere()
+        # NOTE: starting position of balloon will be the same for a seed, so the balloon will always start at the same position given a seed
+        # NOTE: call arena.reset to get initial observation
 
-        # Generate a new MPC plan if it's the first step or if we need to replan
-        if t % mpc_replan_frequency == 0:
-            plan = get_optimized_plan(jax_balloon_state, jax_forecast, jax_atmosphere, ensemble_value_fn, plan)
-            plan_idx = 0
+        plan = None # Initialize plan variable, potentially re-use across iterations based on replan frequency
+        plan_idx = 0
 
-        s_next = JaxBalloonState.from_ble_state(arena.step(plan[plan_idx])) # NOTE: we sample real transitions here (arena.step calculated the real wind)
-        plan_idx += 1
-        D.append(s_next)
+        for t in range(training_max_episode_length):
+            jax_balloon_state = JaxBalloonState.from_ble_state(arena.get_balloon_state())
+            ensemble_value_fn = EnsembleTerminalCost(ensemble) # NOTE: this is recreated every time so it should just be a light wrapper around ensemble to weighted softmax for terminal cost
 
-        if t % polo_value_update_frequency == 0:
-            for g in range(training_num_gradient_steps):
-                state_batch: list[JaxBalloonState] = random.sample(D, min(len(D), training_batch_size))
-                feature_batch = [vn_feature.compute(state, jax_forecast) for state in state_batch]
+            # Generate a new MPC plan if it's the first step or if we need to replan
+            if t % mpc_replan_frequency == 0:
+                plan = get_optimized_plan(jax_balloon_state, jax_forecast, jax_atmosphere, ensemble_value_fn, plan)
+                plan_idx = 0
 
-                for k in range(len(ensemble)):
-                    targets = []
+            s_next = JaxBalloonState.from_ble_state(arena.step(plan[plan_idx])) # NOTE: we sample real transitions here (arena.step calculated the real wind)
+            plan_idx += 1
+            D.append(s_next)
 
-                    for s_i in state_batch:
-                        plan_i = get_optimized_plan(s_i, jax_forecast, jax_atmosphere, ValueTerminalCost(ensemble[k]), previous_plan=None)
+            if t % polo_value_update_frequency == 0:
+                for g in range(training_num_gradient_steps):
+                    state_batch: list[JaxBalloonState] = random.sample(D, min(len(D), training_batch_size))
+                    feature_batch = [vn_feature.compute(state, jax_forecast) for state in state_batch]
+
+                    for k in range(len(ensemble)):
+                        targets = []
+
+                        for s_i in state_batch:
+                            plan_i = get_optimized_plan(s_i, jax_forecast, jax_atmosphere, ValueTerminalCost(ensemble[k]), previous_plan=None)
+                            
                         
+                        ensemble[k].update(feature_batch, targets)
+
+
                     
-                    ensemble[k].update(feature_batch, targets)
-
-
-                
