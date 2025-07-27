@@ -101,6 +101,12 @@ def test_in_cost_function():
 
 @test_suite.test_case
 def test_terminal_cost():
+    """ 
+    Test the terminal cost function with a simple value network and feature extractor. 
+    
+    Note: I am pretty sure eqx.filter_{} is necessary to get the gradients to work with the terminal cost 
+        (specifically the value network feature extractor)
+    """
     arena = get_balloon_arena(seed=0)
     
     simple_feature = BasicValueNetworkFeature()
