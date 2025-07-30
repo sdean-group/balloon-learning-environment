@@ -16,7 +16,7 @@
 """A common set of networks available for agents."""
 
 from absl import logging
-from dopamine.discrete_domains import atari_lib
+#from dopamine.discrete_domains import atari_lib
 from flax import linen as nn
 import gin
 import jax
@@ -96,3 +96,71 @@ class QuantileNetwork(nn.Module):
     probabilities = nn.softmax(logits)
     q_values = jnp.mean(logits, axis=1)
     return atari_lib.RainbowNetworkType(q_values, logits, probabilities)
+  
+#@gin.configurable
+#generally be symmetrical, powers of 2?
+class PolicyNetwork(nn.Module):
+  """Network used in behavior cloning for an agent"""
+  #num_layers: int = gin.REQUIRED
+  # use the same hidden units for each layer FOR NOW
+  #hidden_dim: int = gin.REQUIRED # 64 for now?
+  num_layers: int
+  hidden_dim: int
+  input_dim: int = 20 # input an observation
+  output_dim: int = 1 #outputting an action
+
+  
+  # future todo: make this NN learn discrete actions by forcing output dims to be 3? idk if that would work
+  
+
+  @nn.compact
+  def __call__(self, x: jnp.ndarray):
+    # x is weights (and biases?) parameter input?
+    logging.info(f'Creating network with {self.num_layers} layers and {self.hidden_dim} hidden units')
+    #assert len(self.hidden_dim) == self.num_layers-1
+
+    # Network initializer.
+    kernel_initializer = jax.nn.initializers.kaiming_uniform()
+    x = x.astype(jnp.float32)  # Convert to JAX float32 type.
+    #x = x.reshape(-1)  # Flatten.
+
+    # Pass through the desired number of hidden layers (we do this for
+    # one less than `self.num_layers`, as `self._final_layer` counts as one).
+    for i in range(self.num_layers - 1):
+      # if i ==1 or i==0:
+      #   x = nn.Dense(features=self.hidden_dim*2,
+      #              kernel_init=kernel_initializer)(x)
+      # else:
+      x = nn.Dense(features=self.hidden_dim,
+                   kernel_init=kernel_initializer)(x)
+     
+      x = nn.relu(x)
+      #x = nn.LayerNorm()(x)
+
+    # The final layer 
+    kernel_initializer = jax.nn.initializers.xavier_uniform()
+    final_action = nn.Dense(features=self.output_dim,
+                        kernel_init=kernel_initializer)(x)
+    final_action = nn.tanh(final_action)
+
+    return final_action
+  
+
+
+class LSTM(nn.Module):
+    features: int
+
+    @nn.compact
+    def __call__(self, x):
+        ScanLSTM = nn.scan(
+                nn.OptimizedLSTMCell, variable_broadcast="params",
+                split_rngs={"params": False}, in_axes=1, out_axes=1)
+        lstm = ScanLSTM(self.features)
+        input_shape = x[:, 0].shape
+        carry = lstm.initialize_carry(jax.random.key(0), input_shape)
+        
+        carry, x = lstm(carry, x)
+        x = nn.Dense(1)(x)
+        last_output = x[:, -1]  # only use final hidden state
+        return last_output
+        #return x

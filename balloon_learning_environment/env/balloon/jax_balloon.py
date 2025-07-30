@@ -100,6 +100,33 @@ class JaxBalloonState:
         copy.mols_lift_gas = jnp.astype(state.mols_lift_gas, jnp.float64)
         return copy
 
+    def get_jax_features(self):
+        """ Return JaxBalloonState instance variables that change in balloon._simulate_step_continuous_internal(and also station center) as an numpy array. 18 total variables.
+
+        [center_lat, center_lon, x, y, pressure, ambient_temperature, internal_temperature, envelope_volume, superpressure, status, acs_power, acs_mass_flow, mols_air, solar_charging, power_load, battery_charge, date_time, time_elapsed]
+        """        
+        return jnp.array([
+            self.center_latlng.lat.reshape(()),
+            self.center_latlng.lng.reshape(()),
+            self.x.reshape(()),
+            self.y.reshape(()),
+            self.pressure.reshape(()),
+            self.ambient_temperature.reshape(()),
+            self.internal_temperature.reshape(()),
+            self.envelope_volume.reshape(()),
+            self.superpressure.reshape(()),
+            self.status.reshape(()),
+            self.acs_power.reshape(()),
+            self.acs_mass_flow.reshape(()),
+            self.mols_air.reshape(()),
+            self.solar_charging.reshape(()),
+            self.power_load.reshape(()),
+            self.battery_charge.reshape(()),
+            self.date_time.reshape(()),
+            self.time_elapsed.reshape(())
+        ])
+
+
     def __init__(self):
         self.center_latlng = jax_utils.JaxLatLng(
             jnp.asarray(0.0, jnp.float64), 

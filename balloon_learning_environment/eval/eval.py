@@ -26,12 +26,15 @@ from typing import Sequence
 from absl import app
 from absl import flags
 from balloon_learning_environment.env import balloon_env  # pylint: disable=unused-import
-# from balloon_learning_environment.env.rendering import matplotlib_renderer
+from balloon_learning_environment.env.rendering import matplotlib_renderer
 from balloon_learning_environment.env import features
 from balloon_learning_environment.eval import eval_lib
 from balloon_learning_environment.eval import suites
 from balloon_learning_environment.utils import run_helpers
 import gym
+
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 import pickle 
 
@@ -81,18 +84,22 @@ flags.DEFINE_boolean(
   'collect_diagnostics', False,
   'Whether to collect advanced diagnostics'
 )
+flags.DEFINE_string('optimizer_name', 'sgd',
+                    'The optimizer to run on MPC4 agent')
+
 FLAGS = flags.FLAGS
 
 
 
-# _RENDERERS = {
-#     'matplotlib': matplotlib_renderer.MatplotlibRenderer,
-# }
+_RENDERERS = {
+    'matplotlib': matplotlib_renderer.MatplotlibRenderer,
+}
 
 _FEATURE_CONSTRUCTORS = {
   'perciatelli': features.PerciatelliFeatureConstructor,
   'mpc': features.MPCFeatures,
   'mpc2': features.MPC2Features,
+  'mpc3': features.MPC3Features,
   'mpc-seeker': features.MPCSeekerFeatures
 }
 
@@ -128,15 +135,15 @@ def main(argv: Sequence[str]) -> None:
                                  FLAGS.agent_gin_file,
                                  FLAGS.gin_bindings)
 
-  # renderer = None
-  # if FLAGS.renderer is not None:
-  #   renderer = _RENDERERS[FLAGS.renderer]()
+  renderer = None
+  if FLAGS.renderer is not None:
+    renderer = _RENDERERS[FLAGS.renderer]()
 
   fc_factory = _FEATURE_CONSTRUCTORS[FLAGS.feature_constructor]
   wf_factory = run_helpers.get_wind_field_factory(FLAGS.wind_field)
   env = gym.make('BalloonLearningEnvironment-v0',
                  wind_field_factory=wf_factory,
-                 renderer=None,
+                 renderer=renderer,
                  feature_constructor_factory=fc_factory)
 
   agent = run_helpers.create_agent(
@@ -168,6 +175,17 @@ def main(argv: Sequence[str]) -> None:
                                     render_period=FLAGS.render_period,
                                     collect_diagnostics=FLAGS.collect_diagnostics)
 
+  # eval_lib.graph_all_optimizer_results(FLAGS.optimizer_name, agent, env, eval_suite,
+  #                                   render_period=FLAGS.render_period,
+  #                                   collect_diagnostics=FLAGS.collect_diagnostics)
+
+  # eval_lib.graph_horizon_results(agent, env, eval_suite,
+  #                                   render_period=FLAGS.render_period,
+  #                                   collect_diagnostics=FLAGS.collect_diagnostics)
+
+  
+
+
   
   try:
     tmp0 = [ agent.X_train, agent.y_train ] # break here
@@ -189,6 +207,7 @@ def main(argv: Sequence[str]) -> None:
   if FLAGS.collect_diagnostics:
     # write eval_diagnostics to a json file
     datafile = os.path.join(FLAGS.output_dir, f'{type(agent).__name__}-{int(dt.datetime.now().timestamp()*1000)}.json')
+    print(f"Data in {datafile}")
     with open(datafile, 'w', encoding='utf-8') as f:
       json.dump(eval_diagnostics, f, ensure_ascii=False, indent=4)
 

@@ -10,6 +10,7 @@ import datetime as dt
 from atmosnav import *
 import atmosnav as atm
 from functools import partial
+import time
 
 # imports jaxballoon file:
 from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
@@ -217,6 +218,8 @@ class MPCAgent(agent.Agent):
         self.num_initializations=50
         self.plan = None
         self.i = 0
+        self.avg_iters = 0
+        self.avg_opt_time = 0
         self.waypoint_time_step = 3*60 # seconds, Equivalent to time_delta in BalloonArena
 
         self.integration_time_step = 10 # seconds, Equivalent to stride
@@ -305,12 +308,16 @@ class MPCAgent(agent.Agent):
                     break
             print('Took', (iters + 1) ,'iterations')
         else:
+            start = time.time()
             for iters in range(500):
                 dplan = gradient_at(self.time, self.balloon, plan_0, plan, self.forecast, self.atmosphere, self.waypoint_time_step, self.integration_time_step)
                 if abs(jnp.linalg.norm(dplan)) < 1e-7:
                     break
                 plan -= 0.01 * dplan / jnp.linalg.norm(dplan)
+            end = time.time()
             print('Took', (iters + 1) ,'iterations')
+            self.avg_iters += iters + 1
+            self.avg_opt_time += end-start
             # pass
 
         self.plan = np.concatenate([np.array([plan_0]), np.array(plan)])
@@ -407,6 +414,8 @@ class MPCAgent(agent.Agent):
         self.steps_within_radius = 0
         self.balloon = None
         self.j = 0
+        self.avg_iters = 0
+        self.avg_opt_time = 0
 
     def update_forecast(self, forecast: agent.WindField): 
         # self.forecast = SimpleJaxWindField()

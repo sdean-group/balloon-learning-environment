@@ -114,6 +114,39 @@ class MPCSeekerFeatures:
     # TODO: this is broken
 
     return gym.spaces.Box(low=lo, high=hi)
+  
+class MPC3Features:
+  def __init__(self, forecast: wind_field.WindField,
+               atmosphere: standard_atmosphere.Atmosphere):
+    self.observation = None
+    self.forecast = forecast
+    self.atmosphere = atmosphere
+
+  def observe(self, observation: simulator_data.SimulatorObservation):
+    self.observation = observation
+
+  def get_features(self) -> np.ndarray:
+    balloon_observation = self.observation.balloon_observation
+    jax_balloon_state= JaxBalloonState.from_ble_state(balloon_observation)
+    # this doesnt work because it needs to return a BalloonState not a array?
+    return JaxBalloonState.get_jax_features(jax_balloon_state)
+
+  # remove the constants from the observation but also might need wind info
+  # can get wind through the forecast and atmosphere passed in init
+  # def get_features(self) -> np.ndarray:
+  #   balloon_observation = self.observation.balloon_observation
+  #   jax_balloon_state = JaxBalloonState.from_ble_state(balloon_observation)
+  #   some call here to jaxballoon
+
+  @property
+  def observation_space(self) -> gym.Space:
+    balloon_feature = self.get_features()
+    print("IN FEATURE")
+    print(balloon_feature)
+    lo = np.full((len(balloon_feature), ), -np.inf)
+    hi = np.full((len(balloon_feature), ), +np.inf)
+
+    return gym.spaces.Box(low=lo, high=hi)
 
 class MPC2Features:
   def __init__(self, forecast: wind_field.WindField,

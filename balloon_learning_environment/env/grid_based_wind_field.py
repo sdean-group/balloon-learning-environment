@@ -63,6 +63,76 @@ class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
     # Use lax.cond to handle the conditional direction.
     return jax.lax.cond(cycle_direction == 0, lambda op: op[0], lambda op: op[1] - op[0], operand=(remainder, max_val))
 
+ #Jit this if you have time
+  # def get_forecast_column(
+  #     self,
+  #     x: units.Distance,
+  #     y: units.Distance,
+  #     pressures: Sequence[float],
+  #     elapsed_time: dt.timedelta) -> List[wind_field.WindVector]:
+  #   """A convenience function for getting multiple forecasts in a column. Not Jax Optimized
+
+  #   This allows a simple optimization of the generative wind field.
+
+  #   Args:
+  #     x: Distance from the station keeping target along the latitude
+  #       parallel.
+  #     y: Distance from the station keeping target along the longitude
+  #       parallel.
+  #     pressures: Multiple pressures to get a forecast for, in Pascals. (This is
+  #       a proxy for altitude.)
+  #     elapsed_time: Elapsed time from the "beginning" of the wind field.
+
+  #   Returns:
+  #     WindVectors for each pressure level in the WindField.
+
+  #   Raises:
+  #     RuntimeError: if called before reset().
+  #   """
+  #   if self.field is None:
+  #     raise RuntimeError('Must call reset before get_forecast.')
+    
+  #   batched_get_forecast = jax.vmap(
+  #   lambda pressure: self.get_forecast(x, y, pressure, elapsed_time))
+
+  #   uv = batched_get_forecast(pressures)
+  #   jax.debug.print("uv list is {uv}", uv= uv)
+
+
+  #   # point = self._prepare_get_forecast_inputs(x, y, pressures, elapsed_time)
+  #   # uv = jax.scipy.interpolate.interpn(
+  #   #     self._grid, self.field, point, fill_value=True)
+
+  #   result = list()
+  #   for i in range(len(pressures)):
+  #     result.append(wind_field.WindVector(units.Velocity(mps=uv[i][0]),
+  #                                         units.Velocity(mps=uv[i][1])))
+  #   return result
+
+  def get_forecast_column(self,
+                          x: units.Distance,
+                          y: units.Distance,
+                          pressures: Sequence[float],
+                          elapsed_time: dt.timedelta) -> jnp.ndarray:
+    """A convenience function for getting multiple forecasts in a column.
+
+    This allows a simple optimization of the generative wind field.
+
+    Args:
+      x: Distance from the station keeping target along the latitude
+        parallel.
+      y: Distance from the station keeping target along the longitude
+        parallel.
+      pressures: Multiple pressures to get a forecast for, in Pascals. (This is
+        a proxy for altitude.)
+      elapsed_time: Elapsed time from the "beginning" of the wind field.
+
+    Returns:
+      WindVectors for each pressure level in the WindField.
+    """
+    return jnp.array([self.get_forecast(x, y, pressure, elapsed_time)
+            for pressure in pressures])
+
   #@profile
   def _prepare_get_forecast_inputs(self, x: float, y: float, pressure: float, elapsed_time: float) -> jnp.ndarray:
     x = jnp.clip(x, -self.field_shape.latlng_displacement_km, self.field_shape.latlng_displacement_km)
