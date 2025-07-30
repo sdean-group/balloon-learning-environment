@@ -1,5 +1,6 @@
 import scipy.interpolate
 from balloon_learning_environment.agents import agent, opd
+from balloon_learning_environment.env.balloon.control import AltitudeControlCommand
 from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
 from balloon_learning_environment.env.wind_field import JaxWindField
 from balloon_learning_environment.env.balloon.standard_atmosphere import JaxAtmosphere
@@ -25,9 +26,12 @@ def sigmoid(x):
     return 2 / (1 + jnp.exp(-x)) - 1
 
 def jax_balloon_cost(balloon: JaxBalloon):
+    # COST FUNCTION SIMILAR TO THAT PRESENT IN 	arXiv:2403.10784, but provided similar 
+    # performance. We cannot take advantage of the dropoff term because we have a continuous 
+    # cost.
     # d = jnp.sqrt((balloon.state.x/1000)**2 + (balloon.state.y/1000)**2)
     # return jnp.exp((d-100)/20)
-
+    
     r_2 = (balloon.state.x/1000)**2 + (balloon.state.y/1000)**2
     
     soc = balloon.state.battery_charge / balloon.state.battery_capacity
@@ -573,6 +577,28 @@ class MPC4Agent(agent.Agent):
             self.terminal_cost_fn = QTerminalCost(self.num_wind_levels, params)
         else:
             self.terminal_cost_fn = NoTerminalCost()
+        
+        self.discretize_action = False
+        self.discretization_cutoff = 0.25
+
+    def _get_current_action(self):
+        action = self.plan[self.i].item() if self.plan is not None else 0.0
+        if not self.discretize_action:
+            # print('using continuous action:', action)
+            return action
+
+        # print('discretizing action with cutoff:', self.discretization_cutoff)
+        if action > self.discretization_cutoff:
+            return AltitudeControlCommand.UP
+        elif action < -self.discretization_cutoff:
+            return AltitudeControlCommand.DOWN
+        else:
+            return AltitudeControlCommand.STAY
+        
+        # TODO: this is basic discretization,
+
+        
+
 
     def check_action(self, action):
         """ Does the night power checks from power_safety.py. """
@@ -826,9 +852,9 @@ class MPC4Agent(agent.Agent):
         # print(time.time() - b4, 's to deadreckon ballooon')
 
         action = self.plan[self.i]
-        #return self.check_action(action)
+        return self.check_action(action)
         # print('action', action)
-        return action.item()
+        #return action.item()
 
     def step(self, reward: float, observation: np.ndarray) -> int:
         REPLANNING = True
