@@ -209,7 +209,7 @@ class MPC4Agent(agent.Agent):
         self.num_initializations = args[3] # number of initializations to try
         self.wind_model = args[4]
 
-        print(f'MPC4 Agent Args: plan_steps={self.plan_steps}, replan_steps={self.replan_steps}, model_fidelity={self.model_fidelity}, num_initializations={self.num_initializations}, wind_model={self.wind_model}')
+        print(f'MPC4 Agent Args: plan_steps={self.plan_steps} replan_steps={self.replan_steps} model_fidelity={self.model_fidelity} num_initializations={self.num_initializations} wind_model={self.wind_model}')
 
         # self.N = self.plan_steps
 
