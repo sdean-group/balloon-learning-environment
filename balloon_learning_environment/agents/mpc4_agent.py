@@ -227,6 +227,8 @@ class MPC4Agent(agent.Agent):
         self.discretize_action = False
         self.discretization_cutoff = 0.25
 
+        self._time_taken = 0.0
+
     def _get_current_action(self):
         action = self.plan[self.i].item() if self.plan is not None else 0.0
         if not self.discretize_action:
@@ -275,6 +277,7 @@ class MPC4Agent(agent.Agent):
             self.steps_within_radius += 1
 
     def begin_episode(self, observation: np.ndarray) -> int:
+
         # TODO: actually convert observation into an ndarray (it is a JaxBalloonState, see features.py)
         # balloon = JaxBalloon(jax_balloon_state_from_observation(observation))
 
@@ -293,6 +296,7 @@ class MPC4Agent(agent.Agent):
         initialization_type = 'best_altitude'
         print('USING ' + initialization_type + ' INITIALIZATION')
 
+        _start = time.time()
         if initialization_type == 'opd':
             start = opd.ExplorerState(
                 self.balloon.state.x,
@@ -351,8 +355,8 @@ class MPC4Agent(agent.Agent):
             self.plan = sigmoid(initial_plan)
 
         self.i = 0
+        self._time_taken += time.time() - _start
 
-        b4 = time.time()
         self._deadreckon()
         # print(time.time() - b4, 's to deadreckon ballooon')
 
@@ -439,6 +443,8 @@ class MPC4Agent(agent.Agent):
         self.balloon = None
         self.plan = None
         # self.plan_steps = 960 + 23
+
+        self._time_taken = 0.0
 
     def update_forecast(self, forecast: agent.WindField): 
         self.ble_forecast = forecast
