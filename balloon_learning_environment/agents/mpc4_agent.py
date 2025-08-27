@@ -190,7 +190,9 @@ def get_dplan(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: J
 
 class MPC4Agent(agent.Agent):
         
-    def __init__(self, num_actions: int, observation_shape): # Sequence[int]
+    def __init__(self, num_actions: int, observation_shape, args): # Sequence[int]
+        print("MPC4 Agent Args:", args)
+
         super(MPC4Agent, self).__init__(num_actions, observation_shape)
         self.forecast = None # WindField
         self.ble_atmosphere = None 
