@@ -191,8 +191,6 @@ def get_dplan(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: J
 class MPC4Agent(agent.Agent):
         
     def __init__(self, num_actions: int, observation_shape, args): # Sequence[int]
-        print("MPC4 Agent Args:", args)
-
         super(MPC4Agent, self).__init__(num_actions, observation_shape)
         self.forecast = None # WindField
         self.ble_atmosphere = None 
@@ -205,7 +203,14 @@ class MPC4Agent(agent.Agent):
         self.stride = 10
 
         # self.plan_steps = 960 + 23 
-        self.plan_steps = 240 # (self.plan_time // self.time_delta) // 3
+        self.plan_steps = args[0] # (self.plan_time // self.time_delta) // 3
+        self.replan_steps = args[1]
+        self.model_fidelity = args[2] # 'high' or 'low' fidelity model
+        self.num_initializations = args[3] # number of initializations to try
+        self.wind_model = args[4]
+
+        print(f'MPC4 Agent Args: plan_steps={self.plan_steps}, replan_steps={self.replan_steps}, model_fidelity={self.model_fidelity}, num_initializations={self.num_initializations}, wind_model={self.wind_model}')
+
         # self.N = self.plan_steps
 
         self.plan = None # jnp.full((self.plan_steps, ), fill_value=1.0/3.0)
@@ -311,8 +316,8 @@ class MPC4Agent(agent.Agent):
             initial_plan =  opd.get_plan_from_opd_node(best_node, search_delta_time=search_delta_time, plan_delta_time=self.time_delta)
 
         elif initialization_type == 'best_altitude':
-            initial_plans = get_initial_plans(self.balloon, 100, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
-            
+            initial_plans = get_initial_plans(self.balloon, self.num_initializations, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
+
             batched_cost = []
             for i in range(len(initial_plans)):
                 # tmp = jax.make_jaxpr(jax_plan_cost, static_argnums=(5, 6))(initial_plans[i], self.balloon, self.forecast, self.atmosphere, self.terminal_cost_fn, self.time_delta, self.stride)
@@ -375,7 +380,10 @@ class MPC4Agent(agent.Agent):
             return self._get_current_action()
         else:
             
-            N = min(len(self.plan), 23)
+            N = min(len(self.plan), self.replan_steps)
+            if len(self.plan) < self.replan_steps:
+                print('REPLAN STEPS WARNING: Using length of plan (', len(self.plan), ') as replan steps instead of', self.replan_steps)
+
             if self.i>0 and self.i%N==0:
                 # self.plan_steps -= N
                 self.key, rng = jax.random.split(self.key, 2)
