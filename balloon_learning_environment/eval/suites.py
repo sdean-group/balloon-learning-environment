@@ -48,6 +48,8 @@ for i in range(0, 100):
 _eval_suites['small_eval'] = EvaluationSuite(list(range(100)), 960)
 for i in range(0, 100):
   _eval_suites[f'small_eval{i}'] = EvaluationSuite(list(range(100*i , 100*(i+1))), 960)
+for i in range(0, 100):
+  _eval_suites[f'500_eval{i}'] = EvaluationSuite(list(range(500*i, 500*(i+1))), 960)
 
 for i in range(0, 100):
   _eval_suites[f'tiny_eval{i}'] = EvaluationSuite(list(range(10*i , 10*(i+1))), 960)

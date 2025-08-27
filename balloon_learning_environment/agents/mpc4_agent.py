@@ -47,7 +47,7 @@ class QTerminalCost(TerminalCost):
         model = jax_perciatelli.DistilledNetwork()
         feature_vector = jax_perciatelli.jax_construct_feature_vector(balloon, wind_forecast, self.get_input_size(), self.num_wind_layers)
         q_vals = model.apply(self.distilled_params, feature_vector)
-        terminal_cost = -(jnp.mean(q_vals)**2) # NOTE: can also test with max(Q_values)
+        terminal_cost = 1016 * -(jnp.mean(q_vals)**2) # NOTE: can also test with max(Q_values)
         return terminal_cost
     
     def get_input_size(self):
@@ -229,7 +229,7 @@ class MPC4Agent(agent.Agent):
         self.stride = 10
 
         # self.plan_steps = 960 + 23 
-        self.plan_steps = 240 # (self.plan_time // self.time_delta) // 3
+        self.plan_steps = 64 # (self.plan_time // self.time_delta) // 3
         # self.N = self.plan_steps
 
         self.plan = None # jnp.full((self.plan_steps, ), fill_value=1.0/3.0)
@@ -241,7 +241,7 @@ class MPC4Agent(agent.Agent):
         self.time = None
         self.steps_within_radius = 0
 
-        using_Q_function = False
+        using_Q_function = True
 
         if using_Q_function:
             self.num_wind_levels = 181
@@ -374,8 +374,9 @@ class MPC4Agent(agent.Agent):
             self._deadreckon()
             return self._get_current_action()
         else:
-            
-            N = min(len(self.plan), 23)
+            replan_freq = 16
+            print(replan_freq)
+            N = min(len(self.plan), replan_freq)
             if self.i>0 and self.i%N==0:
                 # self.plan_steps -= N
                 self.key, rng = jax.random.split(self.key, 2)

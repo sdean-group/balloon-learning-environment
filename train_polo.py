@@ -23,7 +23,7 @@ from balloon_learning_environment.env.balloon.balloon import BalloonState, Ballo
 from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
 from balloon_learning_environment.env.wind_field import JaxWindField
 from balloon_learning_environment.env.balloon.standard_atmosphere import JaxAtmosphere
-from balloon_learning_environment.agents.mpc4_agent import get_initial_plan, grad_descent_optimizer, TerminalCost, get_dplan
+from balloon_learning_environment.agents.mpc4_agent import get_initial_plan, grad_descent_optimizer, TerminalCost, get_dplan, sigmoid, inverse_sigmoid
 
 ### Tunable Parameters ###
 
@@ -46,8 +46,8 @@ If value targets have high variance → shorten N
 time_delta = 3*60
 stride = 10
 
-mpc_plan_horizon = 64 
-mpc_replan_frequency = 16
+mpc_plan_horizon = 64
+mpc_replan_frequency = 64 # disable replanning [while testing]
 
 mpc_initialization_num_plans = 100
 
@@ -55,16 +55,14 @@ mpc_initialization_num_plans = 100
 
 polo_ensemble_size = 8
 polo_value_update_frequency = 16
-
-polo_max_episode_length = 240
-
 # Training parameters
 
 training_seeds = list(range(10_000, 11_000))
-testing_seeds = list(range(11_000, 11_100))
+testing_seeds = list(range(11_000, 11_100)) 
+testing_seeds = testing_seeds[:3] # temporary only up to 3
 
 training_num_episodes = 1000
-training_max_episode_length = 960
+training_max_episode_length = 64 # make things go quicker [while testing]
 
 training_num_gradient_steps = 25 # because we are replanning less frequently
 training_batch_size = 128
@@ -107,7 +105,7 @@ def get_optimized_plan(balloon_state: JaxBalloonState, forecast: JaxWindField, a
         mpc_plan_horizon, 
         time_delta, 
         stride, 
-        previous_plan)
+        sigmoid(previous_plan) if previous_plan is not None else previous_plan)
 
     results: Union[np.ndarray, Tuple[np.ndarray, float]] = grad_descent_optimizer(
         initial_plan,
@@ -120,7 +118,10 @@ def get_optimized_plan(balloon_state: JaxBalloonState, forecast: JaxWindField, a
         stride,
         return_cost)
 
-    return results
+    if return_cost:
+        return (inverse_sigmoid(results[0]), results[1])
+    else:
+        return inverse_sigmoid(results)
 
 def evaluate_plan_in_arena(plan: np.ndarray, balloon_state: BalloonState, arena: BalloonArena):
     """ 
@@ -146,14 +147,17 @@ def evaluate_plan_in_arena(plan: np.ndarray, balloon_state: BalloonState, arena:
             balloon.state.x,
             balloon.state.y,
             balloon.state.pressure,
-            balloon.state.elapsed_time)
+            balloon.state.time_elapsed)
 
-        balloon.simulate_step(
-            wind_vector, 
-            arena._atmosphere, 
-            action, 
-            dt.timedelta(seconds=time_delta), 
-            dt.timedelta(seconds=stride))
+        try:
+            balloon.simulate_step(
+                wind_vector, 
+                arena._atmosphere, 
+                action, 
+                dt.timedelta(seconds=time_delta), 
+                dt.timedelta(seconds=stride))
+        except:
+            print("error occurred with action", action)
 
         if balloon.state.x.km**2 + balloon.state.y.km**2 < 50**2:
             steps_within_radius += 1
@@ -184,7 +188,7 @@ def evaluate_mpc_performance(arena: BalloonArena, jax_forecast: JaxWindField, ja
             terminal_cost_fn,
             previous_plan)
 
-        balloon_state, steps_within_radius, steps_completed, distances = evaluate_plan_in_arena(plan[:mpc_replan_frequency], arena)
+        balloon_state, steps_within_radius, steps_completed, distances = evaluate_plan_in_arena(plan[:mpc_replan_frequency], balloon_state, arena)
         
         which_steps = range(total_steps_completed, total_steps_completed + steps_completed)
         total_distance += sum(distance * 0.99**step for distance, step in zip(distances, which_steps))
@@ -194,8 +198,10 @@ def evaluate_mpc_performance(arena: BalloonArena, jax_forecast: JaxWindField, ja
     
     return total_distance, total_steps_within_radius / total_steps_completed
 
+### Network definitions & Terminal Cost ###
 
-### Model definition ###
+## NOTE: NEEED TO MAKE SURE ALL THESE CLASSES ARE JAX-COMPILED CORRECTLY
+# (e.g. that only the things we want to be differentiated are differentiated)
 
 class ValueNetwork(eqx.Module):
     """ A value network to be trained in the POLO framework. """
@@ -214,24 +220,22 @@ class ValueNetwork(eqx.Module):
 
     def __call__(self, x):
         # Predict total value = prior + residual
-        prior_val = self.prior(x)
+        prior_val = jnp.squeeze(self.prior(x), axis=-1)
         resid_val = jnp.squeeze(self.residual(x), axis=-1)
         return prior_val + resid_val
 
-    def randomized_prior_loss(self, x, y):
-        # loss = (y - (prior + residual))^2
-        pred = self.__call__(x)
-        return jnp.mean((pred - y) ** 2)
-
     def update(self, x, y):
-        loss_fn = lambda p: self.randomized_prior_loss(x, y)
+        def loss_fn(residual_params):
+            model = eqx.tree_at(lambda m: m.residual, self, residual_params)
+            return jnp.mean((model(x) - y) ** 2)
+
         grads = jax.grad(loss_fn)(eqx.filter(self.residual, eqx.is_array))
-        updates, new_opt_state = self.optimizer.update(grads, self.opt_state)
+        updates, self.opt_state = self.optimizer.update(grads, self.opt_state)
         self.residual = eqx.apply_updates(self.residual, updates)
-        self.opt_state = new_opt_state
 
 
-class ValueNetworkFeature:
+
+class ValueNetworkFeature(eqx.Module):
     """ interface for computing feature vectors given a balloon and wind forecast for a value network """
 
     def __init__(self):
@@ -270,23 +274,27 @@ class SpatialAveragingFeature(ValueNetworkFeature):
     def compute(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
         raise NotImplementedError('Implement computing')
 
-class EnsembleTerminalCost(TerminalCost):
+class EnsembleTerminalCost(eqx.Module, TerminalCost):
     """ Uses an ensemble of value networks to calculate terminal cost """
-    def __init__(self, vn_feature: ValueNetworkFeature, ensemble: list[ValueNetwork]):
-        pass
+    vn_feature: ValueNetworkFeature
+    ensemble: list[ValueNetwork]
+    kappa: float = 1.0
 
     def __call__(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
-        # NOTE: call compute feature vector here, then combine the ensemble networks
-        pass
+        # return 0
+        features = self.vn_feature.compute(balloon, wind_forecast)
+        preds = jnp.stack([net(features) for net in ensemble])
+        return jax.scipy.special.logsumexp(self.kappa * preds) / self.kappa
 
-class ValueTerminalCost(TerminalCost):
+
+class ValueTerminalCost(eqx.Module, TerminalCost):
     """ Use a single value network as a terminal cost """
     def __init__(self, vn_feature: ValueNetworkFeature, network: ValueNetwork):
-        pass
+        self.vn_feature = vn_feature
+        self.network = network
 
     def __call__(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
-        # NOTE: call compute_feature_vector here
-        pass
+        return self.network(self.vn_feature(balloon, wind_forecast))
 
 ### Training loop ###
 # if __name__ == "__main__":
@@ -295,18 +303,27 @@ ensemble = [ ValueNetwork(key=jax.random.key(seed=seed), input_dim=vn_feature.nu
 D: list[JaxBalloonState] = []
 
 for episode in range(training_num_episodes):
-    print("Episode", episode)
+    print(f"Episode {episode}")
     
     # Evaluate performance of MPC with ensemble terminal cost on testing seeds
     if episode % 10 == 0:
         print(f"Evaluating performance on testing seeds at episode {episode}")
         ensemble_value_fn = EnsembleTerminalCost(vn_feature, ensemble)
 
+        average_twr = 0
+        average_cost = 0
         for seed in testing_seeds:
             arena = get_balloon_arena(seed)
             jax_forecast, jax_atmosphere = arena._wind_field.to_jax_wind_field(), arena._atmosphere.to_jax_atmosphere()
 
-            twr, cost = evaluate_mpc_performance(arena, jax_forecast, jax_atmosphere, ensemble_value_fn)
+            cost, twr = evaluate_mpc_performance(arena, jax_forecast, jax_atmosphere, ensemble_value_fn)
+            average_twr += twr
+            average_cost += cost
+        
+        average_twr /= len(testing_seeds)
+        average_cost /= len(testing_seeds)
+
+        print(f"{average_twr=}, {average_cost=}")
 
     # Sample seed randomly from the training seeds
     seed = random.choice(training_seeds)
@@ -323,7 +340,7 @@ for episode in range(training_num_episodes):
 
     for t in range(training_max_episode_length):
         jax_balloon_state = JaxBalloonState.from_ble_state(arena.get_balloon_state())
-        ensemble_value_fn = EnsembleTerminalCost(ensemble) # NOTE: this is recreated every time so it should just be a light wrapper around ensemble to weighted softmax for terminal cost
+        ensemble_value_fn = EnsembleTerminalCost(vn_feature, ensemble) # NOTE: this is recreated every time so it should just be a light wrapper around ensemble to weighted softmax for terminal cost
 
         # Generate a new MPC plan if it's the first step or if we need to replan
         if t % mpc_replan_frequency == 0:
@@ -341,11 +358,12 @@ for episode in range(training_num_episodes):
 
                 for k in range(len(ensemble)):
                     targets = []
+                    value_terminal_fn = ValueTerminalCost(vn_feature, ensemble[k])
 
                     for s_i in state_batch:
-                        plan_i = get_optimized_plan(s_i, jax_forecast, jax_atmosphere, ValueTerminalCost(ensemble[k]), previous_plan=None)
-                        
-                    
+                        twr, cost = evaluate_mpc_performance(arena, jax_forecast, jax_atmosphere, value_terminal_fn)
+                        targets.append(cost) # NOTE: twr may make sense but this cost kind of has the exact unit we are looking for
+
                     ensemble[k].update(feature_batch, targets)
 
 
