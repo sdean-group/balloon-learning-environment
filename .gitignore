@@ -20,6 +20,8 @@ submission_files/
 
 balloon_learning_environment/colab/.ipynb_checkpoints/
 
+test_jax_balloon_jit.py
+
 *.npy
 
 .DS_Store
