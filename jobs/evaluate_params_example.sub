@@ -1,0 +1,23 @@
+#!/bin/bash
+#SBATCH -J mpc_agent_test_1
+#SBATCH -o jobs/out/test/mpc_agent_test_1-%j.out
+#SBATCH -e jobs/out/test/mpc_agent_test_1-%j.err
+#SBATCH --mail-user=mhp58@cornell.edu        # Email address to send results to.
+#SBATCH --mail-type=ALL
+#SBATCH -N 1
+#SBATCH -n 16
+#SBATCH --mem=16GB
+#SBATCH -t 10:00:00
+#SBATCH --partition=default_partition
+
+lscpu
+
+JAX_ENABLE_X64=True python -m balloon_learning_environment.eval.eval \
+  --agent=mpc4 \
+  --feature_constructor=mpc2 \
+  --suite=micro_eval_short \
+  --hp_horizon=64 \
+  --hp_replan_steps=32 \
+  --hp_num_initializations=5 \
+  --hp_model_fidelity=high \
+  --hp_wind_model=constant

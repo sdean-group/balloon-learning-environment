@@ -81,6 +81,11 @@ flags.DEFINE_boolean(
   'collect_diagnostics', False,
   'Whether to collect advanced diagnostics'
 )
+flags.DEFINE_integer('hp_horizon', 240, 'Defines the horizon hyperparameter')
+flags.DEFINE_integer('hp_replan_steps', 24, 'Defines the replan steps hyperparameter')
+flags.DEFINE_string('hp_model_fidelity', 'full', 'Defines the model fidelity hyperparameter')
+flags.DEFINE_integer('hp_num_initializations', 100, 'Defines the number of initializations hyperparameter')
+flags.DEFINE_string('hp_wind_model', 'prediction', 'Defines the wind model hyperparameter')
 FLAGS = flags.FLAGS
 
 
@@ -142,7 +147,9 @@ def main(argv: Sequence[str]) -> None:
   agent = run_helpers.create_agent(
       FLAGS.agent,
       env.action_space.n,
-      observation_shape=env.observation_space.shape)
+      env.observation_space.shape,
+      [ FLAGS.hp_horizon, FLAGS.hp_replan_steps, FLAGS.hp_model_fidelity, FLAGS.hp_num_initializations, FLAGS.hp_wind_model ] if FLAGS.agent == 'mpc4' else None
+  )
   if FLAGS.checkpoint_dir is not None and FLAGS.checkpoint_idx is not None:
     agent.load_checkpoint(FLAGS.checkpoint_dir, FLAGS.checkpoint_idx)
 

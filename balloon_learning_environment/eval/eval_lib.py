@@ -250,6 +250,7 @@ def eval_agent(agent: base_agent.Agent,
 
       diagnostics[seed]={'seed': seed, 'twr': twr, 'reward': total_reward, 'steps': step_count, 'rollout': diagnostic}
     
+    time_taken = getattr(agent, "_time_taken", -1.0)
     agent.end_episode(reward, is_done)
 
     eval_result = EvaluationResult(
@@ -270,6 +271,7 @@ def eval_agent(agent: base_agent.Agent,
                  seed,
                  eval_result)
     logging.info('Power safety layer violations: %d', env.arena.get_balloon_state().power_safety_layer._triggered)
+    logging.info('Execution time: %f', time_taken)
     logging.info('Altitude safety layer violations: %d', env.arena.get_balloon_state().altitude_safety_layer.safety_triggered)
     logging.info('Envelope safety layer violations: %d', env.arena.get_balloon_state().envelope_safety_layer.safety_triggered)
     
