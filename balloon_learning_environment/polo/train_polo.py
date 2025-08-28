@@ -175,7 +175,7 @@ def evaluate_mpc_performance(arena: BalloonArena, jax_forecast: JaxWindField, ja
 
 
 ### Model definition ###
-from .value_network import ValueNetwork
+from .value_network import ValueNetwork, ValueNetworkTerminalCost, EnsembleValueNetworkTerminalCost
 from .value_network_feature import ValueNetworkFeature, BasicValueNetworkFeature
 
 class SpatialAveragingFeature(ValueNetworkFeature):
@@ -186,14 +186,6 @@ class SpatialAveragingFeature(ValueNetworkFeature):
     def compute(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
         raise NotImplementedError('Implement computing')
 
-class EnsembleTerminalCost(TerminalCost):
-    """ Uses an ensemble of value networks to calculate terminal cost """
-    def __init__(self, vn_feature: ValueNetworkFeature, ensemble: list[ValueNetwork]):
-        pass
-
-    def __call__(self, balloon: JaxBalloon, wind_forecast: JaxWindField):
-        # NOTE: call compute feature vector here, then combine the ensemble networks
-        pass
 ### Training loop ###
 
 
@@ -211,7 +203,7 @@ if __name__ == "__main__":
         # Evaluate performance of MPC with ensemble terminal cost on testing seeds
         if episode % 10 == 0:
             print(f"Evaluating performance on testing seeds at episode {episode}")
-            ensemble_value_fn = EnsembleTerminalCost(vn_feature, ensemble)
+            ensemble_value_fn = EnsembleValueNetworkTerminalCost(vn_feature, ensemble)
 
             for seed in testing_seeds:
                 arena = get_balloon_arena(seed)
@@ -234,7 +226,7 @@ if __name__ == "__main__":
 
         for t in range(training_max_episode_length):
             jax_balloon_state = JaxBalloonState.from_ble_state(arena.get_balloon_state())
-            ensemble_value_fn = EnsembleTerminalCost(ensemble) # NOTE: this is recreated every time so it should just be a light wrapper around ensemble to weighted softmax for terminal cost
+            ensemble_value_fn = EnsembleValueNetworkTerminalCost(vn_feature, ensemble) # NOTE: this is recreated every time so it should just be a light wrapper around ensemble to weighted softmax for terminal cost
 
             # Generate a new MPC plan if it's the first step or if we need to replan
             if t % mpc_replan_frequency == 0:
@@ -254,7 +246,7 @@ if __name__ == "__main__":
                         targets = []
 
                         for s_i in state_batch:
-                            plan_i = get_optimized_plan(s_i, jax_forecast, jax_atmosphere, ValueTerminalCost(ensemble[k]), previous_plan=None)
+                            plan_i = get_optimized_plan(s_i, jax_forecast, jax_atmosphere, ValueNetworkTerminalCost(vn_feature, ensemble[k]), previous_plan=None)
                             
                         
                         ensemble[k].update(feature_batch, targets)

@@ -30,7 +30,20 @@ from atmosnav import JaxTree
 
 
 class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
+  def __init__(self, field_shape, field):
+    pass
 
+  def get_forecast(self, x, y, pressure, elapsed_time):
+    return jnp.array([0.0,0.0]) 
+  
+  def tree_flatten(self):
+    return (), {}
+  
+  @classmethod
+  def tree_unflatten(cls, aux_data, children):
+    return JaxGridBasedWindField(None, None)
+
+class A:
   def __init__(self, field_shape, field):
     super(JaxGridBasedWindField, self).__init__()
     self.field_shape = field_shape

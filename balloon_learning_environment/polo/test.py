@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import equinox as eqx
 
-from .value_network import ValueNetwork, ValueNetworkFeature, ValueNetworkTerminalCost, ValueNetworkTrainer
+from .value_network import ValueNetwork, ValueNetworkFeature, ValueNetworkTerminalCost, ValueNetworkTrainer, EnsembleValueNetworkTerminalCost
 from .value_network_feature import BasicValueNetworkFeature
 
 from balloon_learning_environment.env.balloon_env import BalloonEnv
@@ -111,45 +111,46 @@ def test_terminal_cost():
     
     simple_feature = BasicValueNetworkFeature()
 
-    model = ValueNetwork.create(key=jax.random.key(0), input_dim=simple_feature.num_input_dimensions)
-    terminal_cost = ValueNetworkTerminalCost(simple_feature, model)
+    for i in range(3):
+        model = ValueNetwork.create(key=jax.random.key(i), input_dim=simple_feature.num_input_dimensions)
+        terminal_cost = ValueNetworkTerminalCost(simple_feature, model)
 
-    jax_balloon = JaxBalloon(JaxBalloonState.from_ble_state(arena.get_balloon_state()))
-    jax_forecast = arena._wind_field.to_jax_wind_field()
-    jax_atmosphere = arena._atmosphere.to_jax_atmosphere()
+        jax_balloon = JaxBalloon(JaxBalloonState.from_ble_state(arena.get_balloon_state()))
+        jax_forecast = arena._wind_field.to_jax_wind_field()
+        jax_atmosphere = arena._atmosphere.to_jax_atmosphere()
 
-    def cost_fn(plan, balloon: JaxBalloon, jax_forecast: JaxWindField, jax_atmosphere: JaxAtmosphere, terminal_cost_fn: ValueNetworkTerminalCost):
-        def step_fn(carry, a):
-            balloon, total_cost = carry
-            wind_vector = jax_forecast.get_forecast(
-                balloon.state.x / 1000,
-                balloon.state.y / 1000,
-                balloon.state.pressure,
-                balloon.state.time_elapsed)
-            balloon = balloon.simulate_step_continuous_no_jit(
-                wind_vector,
-                jax_atmosphere,
-                a,
-                180,
-                10)
-            step_cost = (balloon.state.x/1000)**2 + (balloon.state.y/1000)**2
-            total_cost = total_cost + step_cost
-            return (balloon, total_cost), None
+        def cost_fn(plan, balloon: JaxBalloon, jax_forecast: JaxWindField, jax_atmosphere: JaxAtmosphere, terminal_cost_fn: ValueNetworkTerminalCost):
+            def step_fn(carry, a):
+                balloon, total_cost = carry
+                wind_vector = jax_forecast.get_forecast(
+                    balloon.state.x / 1000,
+                    balloon.state.y / 1000,
+                    balloon.state.pressure,
+                    balloon.state.time_elapsed)
+                balloon = balloon.simulate_step_continuous_no_jit(
+                    wind_vector,
+                    jax_atmosphere,
+                    a,
+                    180,
+                    10)
+                step_cost = (balloon.state.x/1000)**2 + (balloon.state.y/1000)**2
+                total_cost = total_cost + step_cost
+                return (balloon, total_cost), None
 
-        (final_balloon, total_cost), _ = jax.lax.scan(step_fn, (balloon, 0.0), inverse_sigmoid(plan))
-        total_cost = total_cost + terminal_cost_fn(final_balloon, jax_forecast)
-        return total_cost
+            (final_balloon, total_cost), _ = jax.lax.scan(step_fn, (balloon, 0.0), inverse_sigmoid(plan))
+            total_cost = total_cost + terminal_cost_fn(final_balloon, jax_forecast)
+            return total_cost
 
-    cost_and_grad = eqx.filter_jit(eqx.filter_value_and_grad(cost_fn))
+        cost_and_grad = eqx.filter_jit(eqx.debug.assert_max_traces(eqx.filter_value_and_grad(eqx.debug.assert_max_traces(cost_fn, max_traces=1)), max_traces=1))
 
-    plan = sigmoid(jnp.array([ 0.1, -0.1, 0.05, -0.05, 0.1]))
-    for i in range(10):
-        # NOTE: this loop was sensitive to learning rate (in terms of not getting any issues, should pay attention for that in the real code)
+        plan = sigmoid(jnp.array([ 0.1, -0.1, 0.05, -0.05, 0.1]))
+        for i in range(10):
+            # NOTE: this loop was sensitive to learning rate (in terms of not getting any issues, should pay attention for that in the real code)
+            cost, plan_delta = cost_and_grad(plan, jax_balloon, jax_forecast, jax_atmosphere, terminal_cost)
+            print('Cost:', cost, 'Plan:', inverse_sigmoid(plan), 'Plan delta:', plan_delta)
+            plan -= 0.001 * plan_delta
         cost, plan_delta = cost_and_grad(plan, jax_balloon, jax_forecast, jax_atmosphere, terminal_cost)
         print('Cost:', cost, 'Plan:', inverse_sigmoid(plan), 'Plan delta:', plan_delta)
-        plan -= 0.001 * plan_delta
-    cost, plan_delta = cost_and_grad(plan, jax_balloon, jax_forecast, jax_atmosphere, terminal_cost)
-    print('Cost:', cost, 'Plan:', inverse_sigmoid(plan), 'Plan delta:', plan_delta)
 
     # Assert that the final plan does not have NaN values
     assert not jnp.any(jnp.isnan(plan)), "Plan contains NaN values after optimization"
@@ -165,7 +166,89 @@ def test_terminal_cost():
     initial_cost = cost_fn(sigmoid(jnp.array([0.1, -0.1, 0.05, -0.05, 0.1])), jax_balloon, jax_forecast, jax_atmosphere, terminal_cost)
     assert final_cost < initial_cost, "Final cost is not less than initial cost after optimization"
 
+@test_suite.test_case
+def test_ensemble_terminal_cost():
+    """ 
+    Test the ensemble terminal cost function with a simple value network and feature extractor.
+    """
+    arena = get_balloon_arena(seed=0)
+    
+    simple_feature = BasicValueNetworkFeature()
+
+    for i in range(3):
+        ensemble = [ValueNetwork.create(key=jax.random.key(i), input_dim=simple_feature.num_input_dimensions) for i in range(3)]
+        terminal_cost = EnsembleValueNetworkTerminalCost(simple_feature, ensemble, kappa=0.1)
+
+        jax_balloon = JaxBalloon(JaxBalloonState.from_ble_state(arena.get_balloon_state()))
+        jax_forecast = arena._wind_field.to_jax_wind_field()
+        jax_atmosphere = arena._atmosphere.to_jax_atmosphere()
+
+        def cost_fn(plan, balloon: JaxBalloon, jax_forecast: JaxWindField, jax_atmosphere: JaxAtmosphere, terminal_cost_fn: EnsembleValueNetworkTerminalCost):
+            def step_fn(carry, a):
+                balloon, total_cost = carry
+                wind_vector = jax_forecast.get_forecast(
+                    balloon.state.x / 1000,
+                    balloon.state.y / 1000,
+                    balloon.state.pressure,
+                    balloon.state.time_elapsed)
+                balloon = balloon.simulate_step_continuous_no_jit(
+                    wind_vector,
+                    jax_atmosphere,
+                    a,
+                    180,
+                    10)
+                step_cost = (balloon.state.x/1000)**2 + (balloon.state.y/1000)**2
+                total_cost = total_cost + step_cost
+                return (balloon, total_cost), None
+
+            (final_balloon, total_cost), _ = jax.lax.scan(step_fn, (balloon, 0.0), inverse_sigmoid(plan))
+            total_cost = total_cost + terminal_cost_fn(final_balloon, jax_forecast)
+            return total_cost
+
+        cost_and_grad = eqx.filter_jit(eqx.filter_value_and_grad(cost_fn))
+
+        plan = sigmoid(jnp.array([ 0.1, -0.1, 0.05, -0.05, 0.1]))
+        for i in range(10):
+            # NOTE: this loop was sensitive to learning rate (in terms of not getting any issues, should pay attention for that in the real code)
+            cost, plan_delta = cost_and_grad(plan, jax_balloon, jax_forecast, jax_atmosphere, terminal_cost)
+            print('Cost:', cost, 'Plan:', inverse_sigmoid(plan), 'Plan delta:', plan_delta)
+            plan -= 0.001 * plan_delta
+        cost, plan_delta = cost_and_grad(plan, jax_balloon, jax_forecast, jax_atmosphere, terminal_cost)
+        print('Cost:', cost, 'Plan:', inverse_sigmoid(plan), 'Plan delta:', plan_delta)
+
+        # Assert that the final plan does not have NaN values
+        assert not jnp.any(jnp.isnan(plan)), "Plan contains NaN values after optimization"
+
+        # Assert that the final cost is finite
+        final_cost = cost_fn(plan, jax_balloon, jax_forecast, jax_atmosphere, terminal_cost)
+        assert jnp.isfinite(final_cost), "Final cost is not finite after optimization"
+
+        # Assert that the final plan is not all zeros
+        assert not jnp.all(plan == 0), "Final plan is all zeros after optimization"
+
+        # Assert that the final cost is less than the initial cost
+        initial_cost = cost_fn(sigmoid(jnp.array([0.1, -0.1, 0.05, -0.05, 0.1])), jax_balloon, jax_forecast, jax_atmosphere, terminal_cost)
+        assert final_cost < initial_cost, "Final cost is not less than initial cost after optimization"
+
+
 if __name__ == "__main__":
-    test_suite.run_tests()
-    print("All tests completed successfully.")
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--which", type=str, default=None, help="Name of the test case to run")
+    args = parser.parse_args()
+
+    if args.which is not None:
+        found = False
+        for fn in test_suite._to_run:
+            if fn.__name__ == args.which:
+                print(f"Running test: {fn.__name__}")
+                fn()
+                found = True
+                break
+        if not found:
+            print(f"Test case '{args.which}' not found.")
+    else:
+        test_suite.run_tests()
+        print("All tests completed successfully.")
     

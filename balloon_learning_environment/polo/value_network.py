@@ -6,6 +6,9 @@ import optax
 from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon
 from balloon_learning_environment.env.wind_field import JaxWindField
 
+# import TerminalCost base class
+# from balloon_learning_environment.agents.mpc4_agent import TerminalCost
+
 class ValueNetworkFeature:
     @property
     def num_input_dimensions(self):
@@ -37,7 +40,9 @@ class ValueNetwork(eqx.Module):
         )
         return ValueNetwork(residual=residual_network, prior=prior_network)
 
+    # @eqx.debug.assert_max_traces(max_traces=1)
     def __call__(self, x):
+        # print("recompiling")
         return (self.residual(x) + self.prior(x)).squeeze()
 
     def loss_and_grad(self, x, y):
@@ -66,7 +71,8 @@ class ValueNetworkTrainer:
         updates, self.opt_state = self.optimizer.update(grads, self.opt_state)
         model_residual = eqx.apply_updates(self.model.residual, updates)
         self.model = ValueNetwork(model_residual, self.model.prior)
-
+        return self.model
+    
 class ValueNetworkTerminalCost(eqx.Module):
     value_network: ValueNetwork 
     value_network_feature: ValueNetworkFeature
@@ -77,16 +83,29 @@ class ValueNetworkTerminalCost(eqx.Module):
 
     def __call__(self, jax_balloon: JaxBalloon, wind_forecast: JaxWindField):
         feature = self.value_network_feature.compute(jax_balloon, wind_forecast)
-        return self.value_network(feature).squeeze()
+        return self.value_network(feature)
     
-# class EnsembleValueNetworkTerminalCost(eqx.Module):
-#     value_networks: list[ValueNetwork]
-#     value_network_feature: ValueNetworkFeature
+class EnsembleValueNetworkTerminalCost(eqx.Module):
+    value_networks: tuple[ValueNetwork]
+    value_network_feature: ValueNetworkFeature
+    kappa: float
 
-#     def __init__(self, value_network_feature: ValueNetworkFeature, value_networks: list[ValueNetwork]):
-#         self.value_networks = value_networks
-#         self.value_network_feature = value_network_feature
+    """ Uses an ensemble of value networks to calculate terminal cost """
+    def __init__(self, vn_feature: ValueNetworkFeature, ensemble: tuple[ValueNetwork], kappa: float):
+        
+        self.value_networks = ensemble
+        self.value_network_feature = vn_feature
+        self.kappa = kappa
 
-#     def __call__(self, jax_balloon: JaxBalloon, wind_forecast: JaxWindField):
-#         feature = self.value_network_feature.compute(jax_balloon, wind_forecast)
-#         return jnp.mean(jnp.array([vn(feature) for vn in self.value_networks]), axis=0).squeeze()
+    def __call__(self, jax_balloon: JaxBalloon, wind_forecast: JaxWindField):
+        print("recompiling")
+        feature = self.value_network_feature.compute(jax_balloon, wind_forecast)
+        # values = jax.lax.map(lambda vn: vn(feature), self.value_networks)
+        # total = jnp.sum(jnp.exp(self.kappa * values))
+        v0 = self.value_networks[0](feature)
+        v1 = self.value_networks[1](feature)
+        v2 = self.value_networks[2](feature)
+
+        values = jnp.array([v0, v1, v2])
+        total = jnp.sum(jnp.exp(self.kappa * values))
+        return jnp.log(total)
