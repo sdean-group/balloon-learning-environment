@@ -196,7 +196,7 @@ def make_ablation(
     update_internal_temperature: bool,
     update_volume_and_pressure: bool,
     update_battery: bool,
-    use_simple_acs: bool = False
+    use_acs: bool
 ):
   def simulate_step_with_ablations(
       state: BalloonState,
@@ -265,7 +265,7 @@ def make_ablation(
     ## Step 5: Calculate, based on desired action, whether we'll use the
     # altitude control system (ACS) ⚙️. Adjust power usage accordingly.
 
-    if use_simple_acs:
+    if not use_acs:
       if action == control.AltitudeControlCommand.UP:
         state_changes['acs_power'] = units.Power(watts=0.0)
         state_changes['acs_mass_flow'] = -0.012
