@@ -195,7 +195,8 @@ def _clip(x, minval, maxval):
 def make_ablation(
     update_internal_temperature: bool,
     update_volume_and_pressure: bool,
-    update_battery: bool
+    update_battery: bool,
+    use_simple_acs: bool = False
 ):
   def simulate_step_with_ablations(
       state: BalloonState,
@@ -264,33 +265,45 @@ def make_ablation(
     ## Step 5: Calculate, based on desired action, whether we'll use the
     # altitude control system (ACS) ⚙️. Adjust power usage accordingly.
 
-    if action == control.AltitudeControlCommand.UP:
-      state_changes['acs_power'] = units.Power(watts=0.0)
-      valve_area = np.pi * state.acs_valve_hole_diameter.meters**2 / 4.0
-      # Coefficient of drag on the air passing through the ACS from the
-      # aperture. A measured quantity.
-      default_valve_hole_cd = 0.62  # [.]
-      gas_density = (
-          state.superpressure +
-          state.pressure) * constants.DRY_AIR_MOLAR_MASS / (
-              constants.UNIVERSAL_GAS_CONSTANT * state.internal_temperature)
-      state_changes['acs_mass_flow'] = (
-          -1 * default_valve_hole_cd * valve_area * np.sqrt(
-              2.0 * state.superpressure * gas_density))
-    elif action == control.AltitudeControlCommand.DOWN:
-      # Run the ACS compressor at a power level that maximizes mols of air
-      # pushed into the ballonet per watt of energy at the current pressure
-      # ratio (backpressure the compressor is pushing against).
-      state_changes['acs_power'] = acs.get_most_efficient_power(
-          state.pressure_ratio)
-      # Compute mass flow rate by first computing efficiency of air flow.
-      efficiency = acs.get_fan_efficiency(state.pressure_ratio,
-                                          state_changes['acs_power'])
-      state_changes['acs_mass_flow'] = acs.get_mass_flow(
-          state_changes['acs_power'], efficiency)
-    else:  # action == control.AltitudeControlCommand.STAY.
-      state_changes['acs_power'] = units.Power(watts=0.0)
-      state_changes['acs_mass_flow'] = 0.0
+    if use_simple_acs:
+      if action == control.AltitudeControlCommand.UP:
+        state_changes['acs_power'] = units.Power(watts=0.0)
+        state_changes['acs_mass_flow'] = -0.012
+      elif action == control.AltitudeControlCommand.DOWN:
+        state_changes['acs_power'] = units.Power(watts=195.0)
+        state_changes['acs_mass_flow'] = 0.007
+      else:
+        state_changes['acs_power'] = units.Power(watts=0.0)
+        state_changes['acs_mass_flow'] = 0.0
+
+    else:
+      if action == control.AltitudeControlCommand.UP:
+        state_changes['acs_power'] = units.Power(watts=0.0)
+        valve_area = np.pi * state.acs_valve_hole_diameter.meters**2 / 4.0
+        # Coefficient of drag on the air passing through the ACS from the
+        # aperture. A measured quantity.
+        default_valve_hole_cd = 0.62  # [.]
+        gas_density = (
+            state.superpressure +
+            state.pressure) * constants.DRY_AIR_MOLAR_MASS / (
+                constants.UNIVERSAL_GAS_CONSTANT * state.internal_temperature)
+        state_changes['acs_mass_flow'] = (
+            -1 * default_valve_hole_cd * valve_area * np.sqrt(
+                2.0 * state.superpressure * gas_density))
+      elif action == control.AltitudeControlCommand.DOWN:
+        # Run the ACS compressor at a power level that maximizes mols of air
+        # pushed into the ballonet per watt of energy at the current pressure
+        # ratio (backpressure the compressor is pushing against).
+        state_changes['acs_power'] = acs.get_most_efficient_power(
+            state.pressure_ratio)
+        # Compute mass flow rate by first computing efficiency of air flow.
+        efficiency = acs.get_fan_efficiency(state.pressure_ratio,
+                                            state_changes['acs_power'])
+        state_changes['acs_mass_flow'] = acs.get_mass_flow(
+            state_changes['acs_power'], efficiency)
+      else:  # action == control.AltitudeControlCommand.STAY.
+        state_changes['acs_power'] = units.Power(watts=0.0)
+        state_changes['acs_mass_flow'] = 0.0
 
     state_changes['mols_air'] = state.mols_air + (
         state_changes['acs_mass_flow'] /
