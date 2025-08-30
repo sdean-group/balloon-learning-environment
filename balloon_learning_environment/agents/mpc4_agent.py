@@ -1,7 +1,7 @@
 import scipy.interpolate
 from balloon_learning_environment.agents import agent, opd
 from balloon_learning_environment.env.balloon.control import AltitudeControlCommand
-from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState
+from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState, JaxBalloonDynamicsParams
 from balloon_learning_environment.env.wind_field import JaxWindField
 from balloon_learning_environment.env.balloon.standard_atmosphere import JaxAtmosphere
 from balloon_learning_environment.models import jax_perciatelli
@@ -76,11 +76,11 @@ class NoTerminalCost(TerminalCost):
 
 jax.tree_util.register_pytree_node_class(NoTerminalCost)
 
-@partial(jax.jit, static_argnums=(5, 6))
-def jax_plan_cost(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride):
-    return jax_plan_cost_no_jit(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride)
+@partial(jax.jit, static_argnums=(5, 6, 7))
+def jax_plan_cost(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride, dynamics_params: JaxBalloonDynamicsParams):
+    return jax_plan_cost_no_jit(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride, dynamics_params)
 
-def jax_plan_cost_no_jit(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, time_delta: 'int, seconds', stride: 'int, seconds'):
+def jax_plan_cost_no_jit(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, time_delta: 'int, seconds', stride: 'int, seconds', dynamics_params: JaxBalloonDynamicsParams):
     cost = 0.0
     discount_factor = 0.99
 
@@ -97,7 +97,7 @@ def jax_plan_cost_no_jit(plan, balloon: JaxBalloon, wind_field: JaxWindField, at
                      lambda op: op[0],
                      operand=(plan[i],))
 
-        next_balloon = balloon.simulate_step_continuous_no_jit(wind_vector, atmosphere, action, time_delta, stride)
+        next_balloon = balloon.simulate_step_continuous_no_jit(wind_vector, atmosphere, action, time_delta, stride, dynamics_params)
 
         cost += (discount_factor**i) * jax_balloon_cost(next_balloon)
 
@@ -107,23 +107,23 @@ def jax_plan_cost_no_jit(plan, balloon: JaxBalloon, wind_field: JaxWindField, at
     terminal_cost = (discount_factor**len(plan)) * (jax_balloon_cost(final_balloon) + terminal_cost_fn(final_balloon, wind_field))
     return cost + terminal_cost
 
-def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride):
-    start_cost = jax_plan_cost(initial_plan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride)
+def grad_descent_optimizer(initial_plan, dcost_dplan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride, dynamics_params: JaxBalloonDynamicsParams):
+    start_cost = jax_plan_cost(initial_plan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride, dynamics_params)
     plan = initial_plan
     for gradient_steps in range(100):
-        dplan = dcost_dplan(plan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride)
+        dplan = dcost_dplan(plan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride, dynamics_params)
         if  np.isnan(dplan).any() or abs(jnp.linalg.norm(dplan)) < 1e-7:
             # print('Exiting early, |∂plan| =',abs(jnp.linalg.norm(dplan)))
             break
         # print("A", gradient_steps, abs(jnp.linalg.norm(dplan)))
         plan -= dplan / jnp.linalg.norm(dplan)
 
-    after_cost = jax_plan_cost(plan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride)
+    after_cost = jax_plan_cost(plan, balloon, forecast, atmosphere, terminal_cost_fn, time_delta, stride, dynamics_params)
     print("GD", gradient_steps, f"∆cost = {after_cost} - {start_cost} = {after_cost - start_cost}")
     return plan
 
 np.random.seed(seed=42)
-def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, atmosphere: JaxAtmosphere, plan_steps, time_delta, stride):
+def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, atmosphere: JaxAtmosphere, plan_steps, time_delta, stride, dynamics_params: JaxBalloonDynamicsParams):
     # flight_record = [(atmosphere.at_pressure(balloon.state.pressure).height.km, 0)]
     flight_record = {atmosphere.at_pressure(balloon.state.pressure).height.km.item(): 0}
 
@@ -133,7 +133,7 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
     up_balloon = balloon
     while time_to_top < plan_steps and atmosphere.at_pressure(up_balloon.state.pressure).height.km < max_km_to_explore:
         wind_vector = forecast.get_forecast(up_balloon.state.x/1000, up_balloon.state.y/1000, up_balloon.state.pressure, up_balloon.state.time_elapsed)
-        up_balloon = up_balloon.simulate_step_continuous(wind_vector, atmosphere, 0.99, time_delta, stride)
+        up_balloon = up_balloon.simulate_step_continuous(wind_vector, atmosphere, 0.99, time_delta, stride, dynamics_params)
         time_to_top += 1
 
         flight_record[atmosphere.at_pressure(up_balloon.state.pressure).height.km.item()] = time_to_top
@@ -144,7 +144,7 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
     down_balloon = balloon
     while time_to_bottom < plan_steps and atmosphere.at_pressure(down_balloon.state.pressure).height.km > min_km_to_explore:
         wind_vector = forecast.get_forecast(down_balloon.state.x/1000, down_balloon.state.y/1000, down_balloon.state.pressure, down_balloon.state.time_elapsed)
-        down_balloon = down_balloon.simulate_step_continuous(wind_vector, atmosphere, -0.99, time_delta, stride)
+        down_balloon = down_balloon.simulate_step_continuous(wind_vector, atmosphere, -0.99, time_delta, stride, dynamics_params)
         time_to_bottom += 1
 
         flight_record[atmosphere.at_pressure(down_balloon.state.pressure).height.km.item()] = time_to_bottom
@@ -182,11 +182,24 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
     return inverse_sigmoid(np.array(plans))
 
 
-@partial(jax.jit, static_argnums=(5, 6))
+@partial(jax.jit, static_argnums=(5, 6, 7))
 @partial(jax.grad, argnums=0)
-def get_dplan(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, time_delta, stride):
+def get_dplan(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: JaxAtmosphere, terminal_cost_fn: TerminalCost, time_delta, stride, dynamics_params: JaxBalloonDynamicsParams):
     # jax.debug.print("{balloon}, {wind_field}, {atmosphere}, {terminal_cost_fn}, {time_delta}, {stride}", balloon=balloon, wind_field=wind_field, atmosphere=atmosphere, terminal_cost_fn=terminal_cost_fn, time_delta=time_delta, stride=stride)
-    return jax_plan_cost_no_jit(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride)
+    return jax_plan_cost_no_jit(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride, dynamics_params)
+
+_MODEL_FIDELITIES: dict[str, JaxBalloonDynamicsParams] = {
+    'high': JaxBalloonDynamicsParams(True, True, True, True),
+    'lower': JaxBalloonDynamicsParams(True, True, False, True),
+    'low': JaxBalloonDynamicsParams(True, True, False, False),
+    'lowest': JaxBalloonDynamicsParams(False, False, False, False),
+
+    'test1': JaxBalloonDynamicsParams(False, True, True, True),
+    'test2': JaxBalloonDynamicsParams(True, False, True, True),
+    'test3': JaxBalloonDynamicsParams(True, True, False, True),
+    'test4': JaxBalloonDynamicsParams(True, True, True, False),
+    'test5': JaxBalloonDynamicsParams(False, False, False, False)
+}
 
 class MPC4Agent(agent.Agent):
         
@@ -203,11 +216,13 @@ class MPC4Agent(agent.Agent):
         self.stride = 10
 
         # self.plan_steps = 960 + 23 
-        self.plan_steps = args[0] # (self.plan_time // self.time_delta) // 3
-        self.replan_steps = args[1]
-        self.model_fidelity = args[2] # 'high' or 'low' fidelity model
-        self.num_initializations = args[3] # number of initializations to try
+        self.plan_steps: int= args[0] # (self.plan_time // self.time_delta) // 3
+        self.replan_steps: int = args[1]
+        self.model_fidelity: str = args[2] # 'high' or 'low' fidelity model
+        self.num_initializations: int = args[3] # number of initializations to try
         self.wind_model = args[4]
+
+        self.dynamics_params: JaxBalloonDynamicsParams = _MODEL_FIDELITIES[self.model_fidelity]
 
         print(f'MPC4 Agent Args: plan_steps={self.plan_steps} replan_steps={self.replan_steps} model_fidelity={self.model_fidelity} num_initializations={self.num_initializations} wind_model={self.wind_model}')
 
@@ -252,9 +267,6 @@ class MPC4Agent(agent.Agent):
         
         # TODO: this is basic discretization,
 
-        
-
-
     def _deadreckon(self):
         # wind_vector = self.ble_forecast.get_forecast(
         #     units.Distance(meters=self.balloon.state.x),
@@ -278,7 +290,8 @@ class MPC4Agent(agent.Agent):
             self.atmosphere, 
             self.plan[self.i], 
             self.time_delta, 
-            self.stride)
+            self.stride,
+            self.dynamics_params)
         
         if (self.balloon.state.x/1000)**2 + (self.balloon.state.y/1000)**2 <= (50.0)**2:
             self.steps_within_radius += 1
@@ -316,25 +329,25 @@ class MPC4Agent(agent.Agent):
             initial_plan =  opd.get_plan_from_opd_node(best_node, search_delta_time=search_delta_time, plan_delta_time=self.time_delta)
 
         elif initialization_type == 'best_altitude':
-            initial_plans = get_initial_plans(self.balloon, self.num_initializations, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride)
+            initial_plans = get_initial_plans(self.balloon, self.num_initializations, self.forecast, self.atmosphere, self.plan_steps, self.time_delta, self.stride, self.dynamics_params)
 
             batched_cost = []
             for i in range(len(initial_plans)):
                 # tmp = jax.make_jaxpr(jax_plan_cost, static_argnums=(5, 6))(initial_plans[i], self.balloon, self.forecast, self.atmosphere, self.terminal_cost_fn, self.time_delta, self.stride)
                 # print(tmp)
 
-                batched_cost.append(jax_plan_cost(initial_plans[i], self.balloon, self.forecast, self.atmosphere, self.terminal_cost_fn, self.time_delta, self.stride))
+                batched_cost.append(jax_plan_cost(initial_plans[i], self.balloon, self.forecast, self.atmosphere, self.terminal_cost_fn, self.time_delta, self.stride, self.dynamics_params))
             
             min_index_so_far = np.argmin(batched_cost)
             min_value_so_far = batched_cost[min_index_so_far]
 
             initial_plan = initial_plans[min_index_so_far]
-            if self.plan is not None and jax_plan_cost(self.plan, self.balloon, self.forecast, self.atmosphere, self.terminal_cost_fn, self.time_delta, self.stride) < min_value_so_far:
+            if self.plan is not None and jax_plan_cost(self.plan, self.balloon, self.forecast, self.atmosphere, self.terminal_cost_fn, self.time_delta, self.stride, self.dynamics_params) < min_value_so_far:
                 print('Using the previous optimized plan as initial plan')
                 initial_plan = self.plan
 
             coast = inverse_sigmoid(np.random.uniform(-0.2, 0.2, size=(self.plan_steps, )))
-            if jax_plan_cost(coast, self.balloon, self.forecast, self.atmosphere, self.terminal_cost_fn, self.time_delta, self.stride) < min_value_so_far:
+            if jax_plan_cost(coast, self.balloon, self.forecast, self.atmosphere, self.terminal_cost_fn, self.time_delta, self.stride, self.dynamics_params) < min_value_so_far:
                 print('Using the nothing plan as initial plan')
                 initial_plan = coast
 
@@ -354,7 +367,8 @@ class MPC4Agent(agent.Agent):
                 self.atmosphere,
                 self.terminal_cost_fn,
                 self.time_delta, 
-                self.stride)
+                self.stride,
+                self.dynamics_params)
             print(time.time() - b4, 's to get optimized plan')
             self.plan = sigmoid(self.plan)
             print(time.time() - b4, 's to get optimized plan')

@@ -254,9 +254,9 @@ class JaxBalloon:
         final_balloon = jax.lax.fori_loop(0, outer_stride//inner_stride, update_step, init_val=self)
         return final_balloon
     
-    @partial(jax.jit, static_argnames=("time_delta", "stride")) 
-    def simulate_step_continuous(self, wind_vector, atmosphere, acs_control, time_delta, stride):
-        return self.simulate_step_continuous_no_jit(wind_vector, atmosphere, acs_control, time_delta, stride)
+    @partial(jax.jit, static_argnames=("time_delta", "stride", "dynamics_params")) 
+    def simulate_step_continuous(self, wind_vector, atmosphere, acs_control, time_delta, stride, dynamics_params: JaxBalloonDynamicsParams):
+        return self.simulate_step_continuous_no_jit(wind_vector, atmosphere, acs_control, time_delta, stride, dynamics_params)
     
     def simulate_step_continuous_no_jit(
             self, 

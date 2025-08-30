@@ -83,7 +83,7 @@ flags.DEFINE_boolean(
 )
 flags.DEFINE_integer('hp_horizon', 240, 'Defines the horizon hyperparameter')
 flags.DEFINE_integer('hp_replan_steps', 24, 'Defines the replan steps hyperparameter')
-flags.DEFINE_string('hp_model_fidelity', 'full', 'Defines the model fidelity hyperparameter')
+flags.DEFINE_string('hp_model_fidelity', 'high', 'Defines the model fidelity hyperparameter (high, lower, low, lowest)')
 flags.DEFINE_integer('hp_num_initializations', 100, 'Defines the number of initializations hyperparameter')
 flags.DEFINE_string('hp_wind_model', 'prediction', 'Defines the wind model hyperparameter')
 FLAGS = flags.FLAGS
