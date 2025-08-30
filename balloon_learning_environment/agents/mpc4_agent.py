@@ -198,7 +198,8 @@ _MODEL_FIDELITIES: dict[str, JaxBalloonDynamicsParams] = {
     'test2': JaxBalloonDynamicsParams(True, False, True, True),
     'test3': JaxBalloonDynamicsParams(True, True, False, True),
     'test4': JaxBalloonDynamicsParams(True, True, True, False),
-    'test5': JaxBalloonDynamicsParams(False, False, False, False)
+    'test5': JaxBalloonDynamicsParams(False, False, False, False),
+    'test6': JaxBalloonDynamicsParams(True, True, True, True)
 }
 
 class MPC4Agent(agent.Agent):
