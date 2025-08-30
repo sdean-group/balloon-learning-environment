@@ -334,11 +334,12 @@ class JaxBalloon:
         
         # Step 3: calculate internal temp of balloon
 
+        latlng = jax_utils.calculate_jax_latlng_from_offset(state.center_latlng, state.x/1000, state.y/1000)
+        # print("C(j): ", latlng)
+        solar_elevation, _, solar_flux = jax_utils.solar_calculator(latlng, state.date_time)
+
         if dynamics_params.update_internal_temp:
 
-            latlng = jax_utils.calculate_jax_latlng_from_offset(state.center_latlng, state.x/1000, state.y/1000)
-            # print("C(j): ", latlng)
-            solar_elevation, _, solar_flux = jax_utils.solar_calculator(latlng, state.date_time)
             # print("solar_elevation", solar_elevation)
 
             new_state.ambient_temperature = jnp.astype(atmosphere.at_pressure(state.pressure).temperature, jnp.float64)
