@@ -2,8 +2,6 @@
 #SBATCH -J mpc_agent_test_1
 #SBATCH -o jobs/out/test/mpc_agent_test_1-%j.out
 #SBATCH -e jobs/out/test/mpc_agent_test_1-%j.err
-#SBATCH --mail-user=mhp58@cornell.edu        # Email address to send results to.
-#SBATCH --mail-type=ALL
 #SBATCH -N 1
 #SBATCH -n 16
 #SBATCH --mem=16GB

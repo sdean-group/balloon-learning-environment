@@ -165,17 +165,15 @@ def get_initial_plans(balloon: JaxBalloon, num_plans, forecast: JaxWindField, at
     for i in range(num_plans):
         random_height = np.random.uniform(15.4, 19.1)
         going_up = random_height >= atmosphere.at_pressure(balloon.state.pressure).height.km
-        steps = int(round(interpolator(np.array([random_height]))[0]))
+        steps = max(int(round(interpolator(np.array([random_height]))[0])), 0)
         # print(steps)
 
         plan = np.zeros((plan_steps, ))
         plan[:steps] = +0.99 if going_up else -0.99 
         # print(random_height, steps)
-        try:
-            if steps < plan_steps:
-                plan[steps:] += np.random.uniform(-0.3, 0.3, plan_steps - steps)
-        except:
-            print(atmosphere.at_pressure(balloon.state.pressure).height.km.item(), random_height, steps, plan_steps)
+        if steps < plan_steps:
+            plan[steps:] += np.random.uniform(-0.3, 0.3, plan_steps - steps)
+
 
         plans.append(plan)
     
