@@ -312,7 +312,6 @@ class Balloon:
             effective_action, self.state.date_time,
             self.state.nighttime_power_load, self.state.battery_charge,
             self.state.battery_capacity)
-    # TODO: make safety layers work with continuous actions
     if False: # using_discrete:
       # NOTE: continuous actions don't have any safety layers implemented
       effective_action = self.state.envelope_safety_layer.get_action(
