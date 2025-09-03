@@ -20,7 +20,9 @@ from typing import List, Sequence, Union
 
 from balloon_learning_environment.env import grid_wind_field_sampler
 from balloon_learning_environment.env import wind_field
+from balloon_learning_environment.env.features import NamedPerciatelliFeatures
 from balloon_learning_environment.utils import units
+from balloon_learning_environment.utils import constants
 import jax
 from jax import numpy as jnp
 import numpy as np
@@ -28,6 +30,22 @@ import scipy.interpolate
 from atmosnav import JaxTree
 # from memory_profiler import profile
 
+class JaxColumnBasedWindField(wind_field.JaxWindField, JaxTree):
+  def __init__(self, perciatelli_features: np.ndarray):
+    # Prepare interpolation based on the perciatelli features
+    named_features = NamedPerciatelliFeatures(perciatelli_features)
+
+    pressure_levels = jnp.linspace(
+      constants.PERCIATELLI_PRESSURE_RANGE_MIN, 
+      constants.PERCIATELLI_PRESSURE_RANGE_MAX, 
+      named_features.num_pressure_levels)
+
+    pass
+
+  def get_forecast(self, x:float, y:float, pressure:float, elapsed_time:float) -> jnp.ndarray:
+    # Use the pressure to interpolate into the wind column
+    
+    pass
 
 class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
 

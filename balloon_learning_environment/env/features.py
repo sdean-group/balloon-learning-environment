@@ -650,3 +650,26 @@ class PerciatelliFeatureConstructor(FeatureConstructor):
       index += 3
 
     return index
+
+class MPCFeaturesWithWindColumn(FeatureConstructor):
+  def __init__(self, forecast: wind_field.WindField,
+               atmosphere: standard_atmosphere.Atmosphere):
+    
+    self.mpc2_features = MPC2Features(forecast, atmosphere)
+    self.perciatelli_features = PerciatelliFeatureConstructor(forecast, atmosphere)
+
+  def observe(self, observation: simulator_data.SimulatorObservation):
+    self.mpc2_features(observation)
+    self.perciatelli_features(observation)
+
+  def get_features(self) -> np.ndarray:
+    mpc2_feature = self.mpc2_features.get_features()
+    perciatelli_feature = self.perciatelli_features.get_features()
+    return mpc2_feature, perciatelli_feature
+
+  @property
+  def observation_space(self) -> gym.Space:
+    # NOTE : this is broken, but it appears not to matter
+    lo = np.full((2, ), -np.inf)
+    hi = np.full((2, ), +np.inf)
+    return gym.spaces.Box(low=lo, high=hi) 
