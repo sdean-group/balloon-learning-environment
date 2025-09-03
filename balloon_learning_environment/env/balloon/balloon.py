@@ -313,7 +313,6 @@ class Balloon:
             self.state.nighttime_power_load, self.state.battery_charge,
             self.state.battery_capacity)
     if False: # using_discrete:
-      # NOTE: continuous actions don't have any safety layers implemented
       effective_action = self.state.envelope_safety_layer.get_action(
           effective_action, self.state.superpressure)
       effective_action = self.state.altitude_safety_layer.get_action(
