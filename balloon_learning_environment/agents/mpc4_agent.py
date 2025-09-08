@@ -187,17 +187,29 @@ def get_dplan(plan, balloon: JaxBalloon, wind_field: JaxWindField, atmosphere: J
     return jax_plan_cost_no_jit(plan, balloon, wind_field, atmosphere, terminal_cost_fn, time_delta, stride, dynamics_params)
 
 _MODEL_FIDELITIES: dict[str, JaxBalloonDynamicsParams] = {
+    # Temperature, Volume, Battery, ACS
     'high': JaxBalloonDynamicsParams(True, True, True, True),
-    'lower': JaxBalloonDynamicsParams(True, True, False, True),
-    'low': JaxBalloonDynamicsParams(True, True, False, False),
-    'lowest': JaxBalloonDynamicsParams(False, False, False, False),
+    'lower': JaxBalloonDynamicsParams(True, True, False, True), 
+    'low': JaxBalloonDynamicsParams(False, True, False, True),
+    'lowest': JaxBalloonDynamicsParams(False, False, False, True),
+    'none': JaxBalloonDynamicsParams(False, False, False, False),
 
     'test1': JaxBalloonDynamicsParams(False, True, True, True),
     'test2': JaxBalloonDynamicsParams(True, False, True, True),
     'test3': JaxBalloonDynamicsParams(True, True, False, True),
     'test4': JaxBalloonDynamicsParams(True, True, True, False),
     'test5': JaxBalloonDynamicsParams(False, False, False, False),
-    'test6': JaxBalloonDynamicsParams(True, True, True, True)
+    'test6': JaxBalloonDynamicsParams(True, True, True, True),
+    'test7' : JaxBalloonDynamicsParams(False, True, False, True),
+    'test8' : JaxBalloonDynamicsParams(False, True, True, False),
+    'test9' : JaxBalloonDynamicsParams(True, False, False, True),
+    'test10': JaxBalloonDynamicsParams(True, False, True, False),
+    'test11': JaxBalloonDynamicsParams(True, True, False, False),
+    'test12': JaxBalloonDynamicsParams(False, False, True, True),
+    'test13': JaxBalloonDynamicsParams(False, False, False, True),
+    'test14': JaxBalloonDynamicsParams(False, False, True, False),
+    'test15': JaxBalloonDynamicsParams(False, True, False, False),
+    'test16': JaxBalloonDynamicsParams(True, False, False, False),
 }
 
 class MPC4Agent(agent.Agent):
