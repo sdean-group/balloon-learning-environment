@@ -8,6 +8,7 @@ build/
 
 q_training/
 
+results/
 saved_results/
 *.lprof
 
