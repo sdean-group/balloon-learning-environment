@@ -332,6 +332,7 @@ class Balloon:
     # this will quantize the continuous actions to discrete ones instead of using 
     # modified dynamics
     _use_quantized_actions = False
+    print("Using quantized actions", _use_quantized_actions)
     if not using_discrete and _use_quantized_actions: # if continuous then calculate relevant values for quantized actions
       # calculate the number of steps of up/down to take to approximate the continuous action
       _quantized_action = control.AltitudeControlCommand.UP if action > 0 else control.AltitudeControlCommand.DOWN

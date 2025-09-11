@@ -267,6 +267,7 @@ class MPC4Agent(agent.Agent):
         
         self.discretize_action = False
         self.discretization_cutoff = 0.25
+        print("Discretizing action", self.discretize_action, "with cutoff", self.discretization_cutoff)
 
         self._time_taken = 0.0
 
