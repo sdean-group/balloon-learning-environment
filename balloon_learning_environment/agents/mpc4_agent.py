@@ -349,6 +349,12 @@ class MPC4Agent(agent.Agent):
             batch[:, 2] = np.array(safe_pressure_levels)
             batch[:, 3] = self.balloon.state.time_elapsed
 
+            if self.wind_model == 'column':
+                # delete observations to just directly use underlying wind field (this is a hack
+                # to avoid hacking into the "abstractions" in BLE to make this cleaner)
+                windgp.error_values.clear()
+                windgp.measurement_locations.clear()
+
             means = windgp.query_batch(batch)[0]
 
             self.forecast = JaxColumnBasedWindField(jnp.array(safe_pressure_levels), jnp.array(means))
