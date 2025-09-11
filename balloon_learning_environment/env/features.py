@@ -651,7 +651,7 @@ class PerciatelliFeatureConstructor(FeatureConstructor):
 
     return index
 
-class MPCFeaturesWithWindColumn(FeatureConstructor):
+class MPC2FeaturesWithWindColumn(FeatureConstructor):
   def __init__(self, forecast: wind_field.WindField,
                atmosphere: standard_atmosphere.Atmosphere):
     
@@ -659,13 +659,15 @@ class MPCFeaturesWithWindColumn(FeatureConstructor):
     self.perciatelli_features = PerciatelliFeatureConstructor(forecast, atmosphere)
 
   def observe(self, observation: simulator_data.SimulatorObservation):
-    self.mpc2_features(observation)
-    self.perciatelli_features(observation)
+    self.mpc2_features.observe(observation)
+    self.perciatelli_features.observe(observation)
 
   def get_features(self) -> np.ndarray:
     mpc2_feature = self.mpc2_features.get_features()
     perciatelli_feature = self.perciatelli_features.get_features()
-    return mpc2_feature, perciatelli_feature
+    windgp = self.perciatelli_features.windgp
+
+    return mpc2_feature, perciatelli_feature, windgp
 
   @property
   def observation_space(self) -> gym.Space:
