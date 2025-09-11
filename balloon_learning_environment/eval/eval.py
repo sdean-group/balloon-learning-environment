@@ -98,6 +98,7 @@ _FEATURE_CONSTRUCTORS = {
   'perciatelli': features.PerciatelliFeatureConstructor,
   'mpc': features.MPCFeatures,
   'mpc2': features.MPC2Features,
+  'mpc2-perciatelli': features.MPC2FeaturesWithWindColumn,
   'mpc-seeker': features.MPCSeekerFeatures
 }
 
