@@ -334,14 +334,20 @@ class MPC4Agent(agent.Agent):
         
             pressure_delta = pressure_levels[1] - pressure_levels[0]
 
+            def clamp(idx):
+                return min(num_pressure_levels - 1, max(0, idx))
+
             balloon_level = int(round((self.balloon.state.pressure - constants.PERCIATELLI_PRESSURE_RANGE_MIN) / pressure_delta))
+            balloon_level = clamp(balloon_level) # Make sure it's a good index
             num_levels_lower = num_pressure_levels - balloon_level - 1
+
+            assert num_levels_lower >= 0
             
             named_features = features.NamedPerciatelliFeatures(perciatelli_features)
             safe_pressure_levels = []
             for i in range(named_features.num_pressure_levels):
                 if named_features.level_is_valid(i):
-                    safe_pressure_levels.append(pressure_levels[i-num_levels_lower])
+                    safe_pressure_levels.append(pressure_levels[clamp(i-num_levels_lower)])
 
             batch = np.zeros((len(safe_pressure_levels), 4))
             batch[:, 0] = self.balloon.state.x
