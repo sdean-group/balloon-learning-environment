@@ -30,64 +30,30 @@ import scipy.interpolate
 from atmosnav import JaxTree
 # from memory_profiler import profile
 
-
-def jax_undo_linear_rescale_with_extrapolation(x: float, vmin: float,
-                                           vmax: float) -> float:
-  """Computes the input of linear_rescale_with_extrapolation given output."""
-  return vmin + x * (vmax - vmin)
-
-def jax_undo_squash_to_unit_interval(x: float, constant: float) -> float:
-  """Computes the input value of squash_to_unit_interval given the output."""
-  return (x * constant) / (1 - x)
-
-def rotate(v: jnp.ndarray, theta: float) -> jnp.ndarray:
-  c, s = jnp.cos(theta), jnp.sin(theta)
-  R = jnp.array([[c, -s],
-                  [s,  c]])
-  return R @ v
-
 class JaxColumnBasedWindField(wind_field.JaxWindField, JaxTree):
-  def __init__(self, perciatelli_features: np.ndarray):
-    # Prepare interpolation based on the perciatelli features
-    named_features = NamedPerciatelliFeatures(perciatelli_features)
+  def __init__(self, pressure_levels, wind_column):
+    self.pressure_levels = pressure_levels
+    self.wind_columns = wind_column
 
-    self.pressure_levels = jnp.linspace(
-      constants.PERCIATELLI_PRESSURE_RANGE_MIN, 
-      constants.PERCIATELLI_PRESSURE_RANGE_MAX, 
-      named_features.num_pressure_levels)
-    
-    self.winds = jnp.array(named_features._winds)
-
-    assert len(self.pressure_levels) >= 2
-
-    self.pressure_delta = self.pressure_levels[1] - self.pressure_levels[0]
-  
   def get_forecast(self, x:float, y:float, pressure:float, elapsed_time:float) -> jnp.ndarray:
-    eps = 1e-5
+    dist = jnp.hypot(x, y)
+    away = jnp.where(dist < 1e-5, jnp.zeros(2), jnp.array([x, y]) / dist)
 
-    # Calculate staton direction (wind angles are relative)
-    station_distance = jnp.hypot(x, y)
-    station_direction = -np.array([x, y]) / (eps + station_distance)
-    
-    # Use the pressure to interpolate into the wind column
-    level = self._get_pressure_level(pressure)
-    start = level * 3
-    wind = jax.lax.dynamic_slice(self.winds, (start,), (3,))
-    uncertainty, bearing_feature, magnitude_feature = wind
-    bearing = jax_undo_linear_rescale_with_extrapolation(bearing_feature, 0.0, jnp.pi)
-    magnitude = jax_undo_squash_to_unit_interval(magnitude_feature, 30.0)
+    interp = jax.scipy.interpolate.RegularGridInterpolator(
+      (self.pressure_levels, ), 
+      self.wind_columns, 
+      fill_value=None)
+    wind_vec = interp(jnp.array([pressure]))[0]
 
-    direction = rotate(station_direction, bearing)
-
-    wind_vec = magnitude * direction
-    wind_vec = jnp.where(station_distance < eps, jnp.zeros_like(wind_vec), wind_vec)
-
+    jnp.where(jnp.logical_and(pressure>=self.pressure_levels[0], pressure<=self.pressure_levels[-1]), wind_vec, away)
     return wind_vec
+  
+  def tree_flatten(self):
+    return (self.pressure_levels, self.wind_columns), {}
 
-  def _get_pressure_level(self, pressure: float):
-    rescaled = (pressure - constants.PERCIATELLI_PRESSURE_RANGE_MIN) / self.pressure_delta
-    level = jnp.round(rescaled).astype(jnp.int32)
-    return level
+  @classmethod
+  def tree_unflatten(cls, aux_data, children):
+    return JaxColumnBasedWindField(*children)
 
     # self._winds = features[16:]
     # wind = self._winds[level * 3:level * 3 + 3]
