@@ -241,6 +241,11 @@ class MPC4Agent(agent.Agent):
         if self.wind_model not in ('gp_grid', 'grid', 'gp_column', 'column'):
             raise ValueError(f'{self.wind_model} is not a valid wind model')
 
+        if self.wind_model == 'gp_grid':
+            self.gk_distance = 100.0
+            self.gk_time = 30.0
+            print(f'gp_grid guassian kernel distance={self.gk_distance} time={self.gk_time}')
+
         self.dynamics_params: JaxBalloonDynamicsParams = _MODEL_FIDELITIES[self.model_fidelity]
 
         print(f'MPC4 Agent Args: plan_steps={self.plan_steps} replan_steps={self.replan_steps} model_fidelity={self.model_fidelity} num_initializations={self.num_initializations} wind_model={self.wind_model}')
@@ -367,9 +372,13 @@ class MPC4Agent(agent.Agent):
             column_wind_field = JaxColumnBasedWindField(jnp.array(safe_pressure_levels), jnp.array(means))
 
             if self.wind_model == 'gp_grid':
-                gk_distance = 100.0
-                gk_time = 30.0
-                self.forecast = JaxInterpolatingWindField(column_wind_field, self.jax_grid_forecast, gk_distance, gk_time, self.balloon.state.x/1000, self.balloon.state.y/1000)
+                self.forecast = JaxInterpolatingWindField(
+                    column_wind_field, 
+                    self.jax_grid_forecast, 
+                    self.gk_distance, 
+                    self.gk_time, 
+                    self.balloon.state.x/1000, 
+                    self.balloon.state.y/1000)
             else:
                 self.forecast = column_wind_field
         elif self.wind_model == 'grid':

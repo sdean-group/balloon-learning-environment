@@ -140,6 +140,9 @@ class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
   def tree_unflatten(cls, aux_data, children): 
     return JaxGridBasedWindField(*children)
 
+
+USE_GUASSIAN_KERNEL = True
+print(f'Using guassian kernel (for gp_grid)', USE_GUASSIAN_KERNEL)
   
 class JaxInterpolatingWindField(wind_field.JaxWindField, JaxTree):
   def __init__(self, column_wind_field: JaxColumnBasedWindField, grid_wind_field: JaxGridBasedWindField, gk_distance: float, gk_time: float, column_x: float, column_y: float):
@@ -152,7 +155,7 @@ class JaxInterpolatingWindField(wind_field.JaxWindField, JaxTree):
     self.column_x = column_x
     self.column_y = column_y
 
-    self.use_guassian_kernel = True
+    self.use_guassian_kernel = USE_GUASSIAN_KERNEL
   
   def get_forecast(self, x: float, y: float, pressure: float,
                    elapsed_time: float) -> jnp.ndarray:
