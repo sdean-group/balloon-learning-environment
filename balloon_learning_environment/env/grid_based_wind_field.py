@@ -141,6 +141,35 @@ class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
     return JaxGridBasedWindField(*children)
 
   
+class JaxInterpolatingWindField(wind_field.JaxWindField, JaxTree):
+  def __init__(self, column_wind_field: JaxColumnBasedWindField, grid_wind_field: JaxGridBasedWindField, gk_distance: float, gk_time: float, column_x: float, column_y: float):
+    self.column_wind_field = column_wind_field
+    self.grid_wind_field = grid_wind_field
+
+    self.gk_distance = gk_distance # km scalar
+    self.gk_time = gk_time # hours scalar
+
+    self.column_x = column_x
+    self.column_y = column_y
+  
+  def get_forecast(self, x: float, y: float, pressure: float,
+                   elapsed_time: float) -> jnp.ndarray:
+    
+    column_wind = self.column_wind_field.get_forecast(x, y, pressure, elapsed_time)
+    grid_wind = self.grid_wind_field.get_forecast(x, y, pressure, elapsed_time)
+
+    dist = jnp.hypot(x - self.column_x, y - self.column_y) # km
+    hours = elapsed_time / 3600.0 # Hours
+    weight = jnp.exp(-((dist / self.gk_distance)**2 + (hours / self.gk_time)**2))
+
+    return column_wind * weight + (1 - weight) * grid_wind
+
+  def tree_flatten(self):
+    return (self.column_wind_field, self.grid_wind_field, self.gk_distance, self.gk_time, self.column_x, self.column_y), {}
+
+  @classmethod
+  def tree_unflatten(cls, aux_data, children): 
+    return JaxInterpolatingWindField(*children)
 
 
 class GridBasedWindField(wind_field.WindField):

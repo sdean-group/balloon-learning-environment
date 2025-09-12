@@ -15,7 +15,7 @@ import time
 import json
 
 from balloon_learning_environment.env import wind_gp
-from balloon_learning_environment.env.grid_based_wind_field import JaxColumnBasedWindField
+from balloon_learning_environment.env.grid_based_wind_field import JaxColumnBasedWindField, JaxGridBasedWindField, JaxInterpolatingWindField
 from balloon_learning_environment.utils import units
 from balloon_learning_environment.utils import constants
 
@@ -238,7 +238,7 @@ class MPC4Agent(agent.Agent):
         self.model_fidelity: str = args[2] # 'high' or 'low' fidelity model
         self.num_initializations: int = args[3] # number of initializations to try
         self.wind_model = args[4] # grid, gp_column, column
-        if self.wind_model not in ('grid', 'gp_column', 'column'):
+        if self.wind_model not in ('gp_grid', 'grid', 'gp_column', 'column'):
             raise ValueError(f'{self.wind_model} is not a valid wind model')
 
         self.dynamics_params: JaxBalloonDynamicsParams = _MODEL_FIDELITIES[self.model_fidelity]
@@ -320,7 +320,7 @@ class MPC4Agent(agent.Agent):
 
         # TODO: actually convert observation into an ndarray (it is a JaxBalloonState, see features.py)
         # balloon = JaxBalloon(jax_balloon_state_from_observation(observation))
-        if self.wind_model == 'gp_column' or self.wind_model == 'column':
+        if self.wind_model == 'gp_grid' or self.wind_model == 'gp_column' or self.wind_model == 'column':
             perciatelli_features = observation[1]
             windgp: wind_gp.WindGP = observation[2]
             observation: JaxBalloonState = observation[0]
@@ -363,9 +363,17 @@ class MPC4Agent(agent.Agent):
                 windgp.measurement_locations.clear()
 
             means = windgp.query_batch(batch)[0]
+            
+            column_wind_field = JaxColumnBasedWindField(jnp.array(safe_pressure_levels), jnp.array(means))
 
-            self.forecast = JaxColumnBasedWindField(jnp.array(safe_pressure_levels), jnp.array(means))
-        else:
+            if self.wind_model == 'gp_grid':
+                # get 0.1 contribution 3km away and 0.1 contribution 1 hour after
+                gk_distance = 5.0
+                gk_time = 2.0
+                self.forecast = JaxInterpolatingWindField(column_wind_field, self.jax_grid_forecast, gk_distance, gk_time, self.balloon.state.x/1000, self.balloon.state.y/1000)
+            else:
+                self.forecast = column_wind_field
+        elif self.wind_model == 'grid':
             observation: JaxBalloonState = observation
             self.balloon = JaxBalloon(observation)
 
@@ -542,6 +550,8 @@ class MPC4Agent(agent.Agent):
         self.ble_forecast = forecast
         if self.wind_model == 'grid':
             self.forecast = forecast.to_jax_wind_field()
+        elif self.wind_model == 'gp_grid':
+            self.jax_grid_forecast = forecast.to_jax_wind_field()
 
     def update_atmosphere(self, atmosphere: agent.standard_atmosphere.Atmosphere): 
         self.ble_atmosphere = atmosphere
