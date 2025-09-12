@@ -3,6 +3,7 @@ from balloon_learning_environment.agents import agent, opd
 from balloon_learning_environment.env.balloon.control import AltitudeControlCommand
 from balloon_learning_environment.env.balloon.jax_balloon import JaxBalloon, JaxBalloonState, JaxBalloonDynamicsParams
 from balloon_learning_environment.env.wind_field import JaxWindField
+from balloon_learning_environment.env import features
 from balloon_learning_environment.env.balloon.standard_atmosphere import JaxAtmosphere
 from balloon_learning_environment.models import jax_perciatelli
 import numpy as np
@@ -12,6 +13,11 @@ import scipy
 from functools import partial
 import time
 import json
+
+from balloon_learning_environment.env import wind_gp
+from balloon_learning_environment.env.grid_based_wind_field import JaxColumnBasedWindField
+from balloon_learning_environment.utils import units
+from balloon_learning_environment.utils import constants
 
 def inverse_sigmoid(x):
     return jnp.log((x+1)/(1-x))
@@ -231,7 +237,9 @@ class MPC4Agent(agent.Agent):
         self.replan_steps: int = args[1]
         self.model_fidelity: str = args[2] # 'high' or 'low' fidelity model
         self.num_initializations: int = args[3] # number of initializations to try
-        self.wind_model = args[4]
+        self.wind_model = args[4] # grid, gp_column, column
+        if self.wind_model not in ('grid', 'gp_column', 'column'):
+            raise ValueError(f'{self.wind_model} is not a valid wind model')
 
         self.dynamics_params: JaxBalloonDynamicsParams = _MODEL_FIDELITIES[self.model_fidelity]
 
@@ -259,6 +267,7 @@ class MPC4Agent(agent.Agent):
         
         self.discretize_action = False
         self.discretization_cutoff = 0.25
+        print("Discretizing action", self.discretize_action, "with cutoff", self.discretization_cutoff)
 
         self._time_taken = 0.0
 
@@ -311,11 +320,59 @@ class MPC4Agent(agent.Agent):
 
         # TODO: actually convert observation into an ndarray (it is a JaxBalloonState, see features.py)
         # balloon = JaxBalloon(jax_balloon_state_from_observation(observation))
+        if self.wind_model == 'gp_column' or self.wind_model == 'column':
+            perciatelli_features = observation[1]
+            windgp: wind_gp.WindGP = observation[2]
+            observation: JaxBalloonState = observation[0]
+            self.balloon = JaxBalloon(observation)
 
-        observation: JaxBalloonState = observation
+            num_pressure_levels = 181
+
+            pressure_levels = np.linspace(
+                constants.PERCIATELLI_PRESSURE_RANGE_MIN, 
+                constants.PERCIATELLI_PRESSURE_RANGE_MAX,
+                num_pressure_levels)
+        
+            pressure_delta = pressure_levels[1] - pressure_levels[0]
+
+            def clamp(idx):
+                return min(num_pressure_levels - 1, max(0, idx))
+
+            balloon_level = int(round((self.balloon.state.pressure - constants.PERCIATELLI_PRESSURE_RANGE_MIN) / pressure_delta))
+            balloon_level = clamp(balloon_level) # Make sure it's a good index
+            num_levels_lower = num_pressure_levels - balloon_level - 1
+
+            assert num_levels_lower >= 0
+            
+            named_features = features.NamedPerciatelliFeatures(perciatelli_features)
+            safe_pressure_levels = []
+            for i in range(named_features.num_pressure_levels):
+                if named_features.level_is_valid(i):
+                    safe_pressure_levels.append(pressure_levels[clamp(i-num_levels_lower)])
+
+            batch = np.zeros((len(safe_pressure_levels), 4))
+            batch[:, 0] = self.balloon.state.x
+            batch[:, 1] = self.balloon.state.y
+            batch[:, 2] = np.array(safe_pressure_levels)
+            batch[:, 3] = self.balloon.state.time_elapsed
+
+            if self.wind_model == 'column':
+                # delete observations to just directly use underlying wind field (this is a hack
+                # to avoid hacking into the "abstractions" in BLE to make this cleaner)
+                windgp.error_values.clear()
+                windgp.measurement_locations.clear()
+
+            means = windgp.query_batch(batch)[0]
+
+            self.forecast = JaxColumnBasedWindField(jnp.array(safe_pressure_levels), jnp.array(means))
+        else:
+            observation: JaxBalloonState = observation
+            self.balloon = JaxBalloon(observation)
+
         # if self.balloon is not None:
         #     observation.x = self.balloon.state.x
         #     observation.y = self.balloon.state.y
+
         self.balloon = JaxBalloon(observation)
 
         # current_plan_cost = jax_plan_cost(self.plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
@@ -483,7 +540,8 @@ class MPC4Agent(agent.Agent):
 
     def update_forecast(self, forecast: agent.WindField): 
         self.ble_forecast = forecast
-        self.forecast = forecast.to_jax_wind_field()
+        if self.wind_model == 'grid':
+            self.forecast = forecast.to_jax_wind_field()
 
     def update_atmosphere(self, atmosphere: agent.standard_atmosphere.Atmosphere): 
         self.ble_atmosphere = atmosphere

@@ -98,6 +98,7 @@ _FEATURE_CONSTRUCTORS = {
   'perciatelli': features.PerciatelliFeatureConstructor,
   'mpc': features.MPCFeatures,
   'mpc2': features.MPC2Features,
+  'mpc2-perciatelli': features.MPC2FeaturesWithWindColumn,
   'mpc-seeker': features.MPCSeekerFeatures
 }
 
@@ -137,6 +138,7 @@ def main(argv: Sequence[str]) -> None:
   # if FLAGS.renderer is not None:
   #   renderer = _RENDERERS[FLAGS.renderer]()
 
+  print("feature constructor:", FLAGS.feature_constructor)
   fc_factory = _FEATURE_CONSTRUCTORS[FLAGS.feature_constructor]
   wf_factory = run_helpers.get_wind_field_factory(FLAGS.wind_field)
   env = gym.make('BalloonLearningEnvironment-v0',

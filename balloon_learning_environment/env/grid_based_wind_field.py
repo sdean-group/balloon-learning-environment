@@ -20,13 +20,68 @@ from typing import List, Sequence, Union
 
 from balloon_learning_environment.env import grid_wind_field_sampler
 from balloon_learning_environment.env import wind_field
+from balloon_learning_environment.env.features import NamedPerciatelliFeatures
 from balloon_learning_environment.utils import units
+from balloon_learning_environment.utils import constants
 import jax
 from jax import numpy as jnp
 import numpy as np
 import scipy.interpolate
 from atmosnav import JaxTree
 # from memory_profiler import profile
+
+class JaxColumnBasedWindField(wind_field.JaxWindField, JaxTree):
+  def __init__(self, pressure_levels, wind_column):
+    self.pressure_levels = pressure_levels
+    self.wind_columns = wind_column
+
+  def get_forecast(self, x:float, y:float, pressure:float, elapsed_time:float) -> jnp.ndarray:
+    dist = jnp.hypot(x, y)
+    away = jnp.where(dist < 1e-5, jnp.zeros(2), jnp.array([x, y]) / dist)
+
+    interp = jax.scipy.interpolate.RegularGridInterpolator(
+      (self.pressure_levels, ), 
+      self.wind_columns, 
+      fill_value=None)
+    wind_vec = interp(jnp.array([pressure]))[0]
+
+    jnp.where(jnp.logical_and(pressure>=self.pressure_levels[0], pressure<=self.pressure_levels[-1]), wind_vec, away)
+    return wind_vec
+  
+  def tree_flatten(self):
+    return (self.pressure_levels, self.wind_columns), {}
+
+  @classmethod
+  def tree_unflatten(cls, aux_data, children):
+    return JaxColumnBasedWindField(*children)
+
+    # self._winds = features[16:]
+    # wind = self._winds[level * 3:level * 3 + 3]
+    #  def _nearest_pressure_level(
+    #   self, pressure: float) -> int:
+    # """Returns the pressure level nearest to a given pressure value.
+
+    # Args:
+    #   pressure: Desired pressure.
+
+    # Returns:
+    #   level: The corresponding nearest level.
+    # """
+    # if pressure < self.min_pressure or pressure > self.max_pressure:
+    #   # A warning has been logged. Quantize the pressure level.
+    #   pressure = min(max(pressure, self.min_pressure), self.max_pressure)
+
+    # # Basically quantize 'pressure'.
+    # # Note: this assumes uniform pressure levels.
+    # assert len(self.pressure_levels) >= 2
+    # delta = self.pressure_levels[1] - self.pressure_levels[0]
+
+    # rescaled = (pressure - self.min_pressure) / delta
+    # level = int(round(rescaled))
+
+    # assert level >= 0 and level < self.num_pressure_levels
+    # return level
+
 
 
 class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
