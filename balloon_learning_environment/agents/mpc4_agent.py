@@ -367,9 +367,8 @@ class MPC4Agent(agent.Agent):
             column_wind_field = JaxColumnBasedWindField(jnp.array(safe_pressure_levels), jnp.array(means))
 
             if self.wind_model == 'gp_grid':
-                # get 0.1 contribution 3km away and 0.1 contribution 1 hour after
-                gk_distance = 5.0
-                gk_time = 2.0
+                gk_distance = 100.0
+                gk_time = 30.0
                 self.forecast = JaxInterpolatingWindField(column_wind_field, self.jax_grid_forecast, gk_distance, gk_time, self.balloon.state.x/1000, self.balloon.state.y/1000)
             else:
                 self.forecast = column_wind_field
