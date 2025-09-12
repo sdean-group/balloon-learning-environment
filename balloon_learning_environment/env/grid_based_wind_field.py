@@ -162,6 +162,7 @@ class JaxInterpolatingWindField(wind_field.JaxWindField, JaxTree):
     hours = elapsed_time / 3600.0 # Hours
     weight = jnp.exp(-((dist / self.gk_distance)**2 + (hours / self.gk_time)**2))
 
+    # weight = 0.5
     return column_wind * weight + (1 - weight) * grid_wind
 
   def tree_flatten(self):
