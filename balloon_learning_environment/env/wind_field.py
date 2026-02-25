@@ -33,6 +33,9 @@ import numpy as np
 from jax import numpy as jnp
 from atmosnav import *
 
+WITH_WIND_NOISE = True
+print('Using wind noise:', WITH_WIND_NOISE)
+
 # WindVector contains the following elements:
 #   u: Wind magnitude along the x axis in meters per second.
 #   v: Wind magnitude along the y axis in meters per second.
@@ -150,9 +153,12 @@ class WindField(abc.ABC):
       A WindVector for the position in the WindField.
     """
     forecast = self.get_forecast(x, y, pressure, elapsed_time)
-    # return forecast
-    noise = self._noise_model.get_wind_noise(x, y, pressure, elapsed_time)
-    return forecast.add(noise)
+
+    if WITH_WIND_NOISE:
+      noise = self._noise_model.get_wind_noise(x, y, pressure, elapsed_time)
+      return forecast.add(noise)
+    else:
+      return forecast
 
 
 @gin.configurable(allowlist=[])
