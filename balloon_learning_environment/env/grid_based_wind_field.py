@@ -141,7 +141,7 @@ class JaxGridBasedWindField(wind_field.JaxWindField, JaxTree):
     return JaxGridBasedWindField(*children)
 
 
-USE_GUASSIAN_KERNEL = True
+USE_GUASSIAN_KERNEL = False
 print(f'Using guassian kernel (for gp_grid)', USE_GUASSIAN_KERNEL)
   
 class JaxInterpolatingWindField(wind_field.JaxWindField, JaxTree):

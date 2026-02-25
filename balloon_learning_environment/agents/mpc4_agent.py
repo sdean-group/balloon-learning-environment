@@ -237,7 +237,7 @@ class MPC4Agent(agent.Agent):
         self.replan_steps: int = args[1]
         self.model_fidelity: str = args[2] # 'high' or 'low' fidelity model
         self.num_initializations: int = args[3] # number of initializations to try
-        self.wind_model = args[4] # grid, gp_column, column
+        self.wind_model = args[4] # 'gp_grid', 'grid', 'gp_column', 'column'
         if self.wind_model not in ('gp_grid', 'grid', 'gp_column', 'column'):
             raise ValueError(f'{self.wind_model} is not a valid wind model')
 
