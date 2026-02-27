@@ -86,6 +86,10 @@ flags.DEFINE_integer('hp_replan_steps', 24, 'Defines the replan steps hyperparam
 flags.DEFINE_string('hp_model_fidelity', 'high', 'Defines the model fidelity hyperparameter (high, lower, low, lowest)')
 flags.DEFINE_integer('hp_num_initializations', 100, 'Defines the number of initializations hyperparameter')
 flags.DEFINE_string('hp_wind_model', 'grid', 'Defines the wind model hyperparameter')
+
+## mppi specific
+flags.DEFINE_float('hp_temperature', 1.0, 'Defines the temperature of the MPPI controller')
+flags.DEFINE_float('hp_action_std', 0.5, 'Defines the temperature of the MPPI controller')
 FLAGS = flags.FLAGS
 
 
@@ -146,11 +150,16 @@ def main(argv: Sequence[str]) -> None:
                  renderer=None,
                  feature_constructor_factory=fc_factory)
 
+  args = None
+  if FLAGS.agent == 'mpc4':
+    args = [ FLAGS.hp_horizon, FLAGS.hp_replan_steps, FLAGS.hp_model_fidelity, FLAGS.hp_num_initializations, FLAGS.hp_wind_model ] 
+  elif FLAGS.agent == 'mpc5':
+    args = [ FLAGS.hp_horizon, FLAGS.hp_replan_steps, FLAGS.hp_model_fidelity, FLAGS.hp_num_initializations, FLAGS.hp_action_std, FLAGS.hp_temperature, FLAGS.hp_wind_model ]
   agent = run_helpers.create_agent(
       FLAGS.agent,
       env.action_space.n,
       env.observation_space.shape,
-      [ FLAGS.hp_horizon, FLAGS.hp_replan_steps, FLAGS.hp_model_fidelity, FLAGS.hp_num_initializations, FLAGS.hp_wind_model ] if FLAGS.agent == 'mpc4' else None
+      args
   )
   if FLAGS.checkpoint_dir is not None and FLAGS.checkpoint_idx is not None:
     agent.load_checkpoint(FLAGS.checkpoint_dir, FLAGS.checkpoint_idx)

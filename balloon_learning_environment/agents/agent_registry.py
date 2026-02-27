@@ -41,6 +41,7 @@ from balloon_learning_environment.agents import mpc_discrete_agent
 from balloon_learning_environment.agents import mpc2_agent
 from balloon_learning_environment.agents import mpc3_agent
 from balloon_learning_environment.agents import mpc4_agent
+from balloon_learning_environment.agents import mpc5_agent
 from balloon_learning_environment.agents import copyagent
 
 
@@ -65,6 +66,7 @@ REGISTRY = {
     'mpc3': (mpc3_agent.MPC3Agent, None),
     'mpc4': (mpc4_agent.MPC4Agent, None),
     'mpc4_follower': (mpc4_agent.MPC4FollowerAgent, None),
+    'mpc5': (mpc5_agent.MPC5Agent, None),
     'copyagent': (copyagent.Follower, None),
   }
 
