@@ -212,7 +212,7 @@ class MPPI:
 
         # 2.5 
         target_pct = self.target_pct
-        temperature = find_adaptive_temperature(costs, target_pct, self.num_envs)
+        temperature = find_adaptive_temperature(costs, target_pct, self.num_envs, low=0.001, high=10000.0, steps=19)
 
         # 3. Reweight (The MPPI Update)
         weights = jax.nn.softmax(-1.0 / temperature * (costs - jnp.min(costs)))
@@ -310,10 +310,10 @@ class MPC5Agent(agent.Agent):
         self.model_fidelity: str = args[2] # 'high' or 'low' fidelity model
         self.num_envs: int = args[3] # number of initializations to try
         self.action_std: int = args[4]
-        self.temperature: int = args[5]
-        _num_indices = 12
-        self.sample_indices: tuple = tuple([i*_num_indices for i in range(self.plan_steps//_num_indices)])
-        self.wind_model = args[6] # 'gp_grid', 'grid', 'gp_column', 'column'
+        self.target_pct: int = args[5]
+        self.sample_values: int = args[6]
+        self.sample_indices: tuple = tuple([i*self.sample_values for i in range(self.plan_steps//self.sample_values)])
+        self.wind_model = args[7] # 'gp_grid', 'grid', 'gp_column', 'column'
         if self.wind_model not in ('gp_grid', 'grid', 'gp_column', 'column'):
             raise ValueError(f'{self.wind_model} is not a valid wind model')
 
@@ -324,7 +324,7 @@ class MPC5Agent(agent.Agent):
 
         self.dynamics_params: JaxBalloonDynamicsParams = _MODEL_FIDELITIES[self.model_fidelity]
 
-        print(f'MPC5 Agent Args: plan_steps={self.plan_steps} replan_steps={self.replan_steps} model_fidelity={self.model_fidelity} num_initializations={self.num_envs} wind_model={self.wind_model}')
+        print(f'MPC5 Agent Args: plan_steps={self.plan_steps} replan_steps={self.replan_steps} model_fidelity={self.model_fidelity} num_initializations={self.num_envs} wind_model={self.wind_model}, action_std={self.action_std}, target_pct={self.target_pct}')
 
         # self.N = self.plan_steps
 
@@ -351,11 +351,11 @@ class MPC5Agent(agent.Agent):
 
         self._time_taken = 0.0
 
-        self.mppi = None #MPPI(self.plan_steps, self.num_envs, 1, self.action_std, self.temperature, self.sample_indices, None)
+        self.mppi = None
 
     def _get_current_action(self):
         action = self.state.nominal_actions[0, 0] if self.state is not None else 0.0
-        
+
         if not self.discretize_action:
             # print('using continuous action:', action)
             return action
@@ -466,7 +466,7 @@ class MPC5Agent(agent.Agent):
             return costs # This will be shape (plans.shape[0],)
                 
         if self.mppi is None:
-            self.mppi = MPPI(self.plan_steps, self.num_envs, 1, self.action_std, self.temperature, self.sample_indices, sample_fn)
+            self.mppi = MPPI(self.plan_steps, self.num_envs, 1, self.action_std, self.target_pct, self.sample_indices, sample_fn)
             self.mppi_update = jax.jit(self.mppi.update)
 
         # current_plan_cost = jax_plan_cost(self.plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)

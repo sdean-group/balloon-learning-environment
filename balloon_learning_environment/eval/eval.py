@@ -91,7 +91,8 @@ flags.DEFINE_float('hp_wind_noise_scale', 1.0, 'Defines the wind noise scale')
 
 ## mppi specific
 flags.DEFINE_float('hp_target_percent', 0.20, 'Defines the target effective sample size of the MPPI controller')
-flags.DEFINE_float('hp_action_std', 0.5, 'Defines the temperature of the MPPI controller')
+flags.DEFINE_float('hp_action_std', 0.5, 'Defines the action std of the controller')
+flags.DEFINE_integer('hp_sample_values', 12, 'Defines the amount of samples to take')
 
 FLAGS = flags.FLAGS
 
@@ -159,7 +160,7 @@ def main(argv: Sequence[str]) -> None:
   if FLAGS.agent == 'mpc4':
     args = [ FLAGS.hp_horizon, FLAGS.hp_replan_steps, FLAGS.hp_model_fidelity, FLAGS.hp_num_initializations, FLAGS.hp_wind_model ] 
   elif FLAGS.agent == 'mpc5':
-    args = [ FLAGS.hp_horizon, FLAGS.hp_replan_steps, FLAGS.hp_model_fidelity, FLAGS.hp_num_initializations, FLAGS.hp_action_std, FLAGS.hp_target_percent, FLAGS.hp_wind_model ]
+    args = [ FLAGS.hp_horizon, FLAGS.hp_replan_steps, FLAGS.hp_model_fidelity, FLAGS.hp_num_initializations, FLAGS.hp_action_std, FLAGS.hp_target_percent, FLAGS.hp_sample_values, FLAGS.hp_wind_model ]
   agent = run_helpers.create_agent(
       FLAGS.agent,
       env.action_space.n,
