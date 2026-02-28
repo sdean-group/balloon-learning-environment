@@ -173,13 +173,13 @@ class MPPI:
             rng=jax.random.PRNGKey(seed)
         )
 
-    def update(self, state: MPPIState) -> tuple[jnp.ndarray, MPPIState]:
+    def update(self, state: MPPIState, args) -> tuple[jnp.ndarray, MPPIState]:
         """The core Optax-style update function."""
         next_rng, delta_actions = sample_action_noise(state.rng, self.horizon, self.num_envs, self.action_dim, self.sample_indices, self.action_std)
         explore_actions = state.nominal_actions + delta_actions # shape: (num_envs, horizon, action_dim)
 
         # 2. Score (Rollout)
-        costs = self.sample_fn(explore_actions) # shape: (num_envs, )
+        costs = self.sample_fn(explore_actions, args) # shape: (num_envs, )
         costs /= self.horizon
 
         # 3. Reweight (The MPPI Update)
@@ -190,7 +190,7 @@ class MPPI:
         new_nominal_actions = state.nominal_actions + update_delta
 
         ess = 1.0 / jnp.sum(jnp.square(weights))
-        print(f"ESS: {ess} / {self.num_envs} (Temp: {self.temperature})")
+        jax.debug.print("ESS: {ess} / {ne} (Temp: {t})",ess=ess,ne=self.num_envs,t=self.temperature)
 
         new_state = MPPIState(nominal_actions=new_nominal_actions, rng=next_rng)        
         return new_state
@@ -319,7 +319,7 @@ class MPC5Agent(agent.Agent):
 
         self._time_taken = 0.0
 
-        self.mppi = MPPI(self.plan_steps, self.num_envs, 1, self.action_std, self.temperature, self.sample_indices, None)
+        self.mppi = None #MPPI(self.plan_steps, self.num_envs, 1, self.action_std, self.temperature, self.sample_indices, None)
 
     def _get_current_action(self):
         action = self.state.nominal_actions[0, 0] if self.state is not None else 0.0
@@ -408,20 +408,34 @@ class MPC5Agent(agent.Agent):
 
         self.balloon = JaxBalloon(observation)
 
-        def sample_fn(plans):
-            costs = []
-            for plan in plans:
-                costs.append(jax_plan_cost(
+
+        def sample_fn(plans, args):
+            # 1. Define the function we want to vectorize
+            # We use a closure or a partial to fix the arguments that don't change
+            def single_plan_cost(plan):
+                return jax_plan_cost_no_jit(
                     jnp.squeeze(plan), 
-                    self.balloon, 
-                    self.forecast, 
+                    args[0], 
+                    args[1], 
                     self.atmosphere, 
                     self.terminal_cost_fn,
                     self.time_delta,
                     self.stride,
-                    self.dynamics_params))
-            return jnp.array(costs)
-        self.mppi.sample_fn = sample_fn
+                    self.dynamics_params
+                )
+
+            # 2. Apply vmap
+            # in_axes=(0,) means we map over the first dimension of the 'plans' argument
+            vectorized_cost_fn = jax.vmap(single_plan_cost, in_axes=(0,))
+            
+            # 3. Execute on all plans at once
+            costs = vectorized_cost_fn(plans)
+            
+            return costs # This will be shape (plans.shape[0],)
+                
+        if self.mppi is None:
+            self.mppi = MPPI(self.plan_steps, self.num_envs, 1, self.action_std, self.temperature, self.sample_indices, sample_fn)
+            self.mppi_update = jax.jit(self.mppi.update)
 
         # current_plan_cost = jax_plan_cost(self.plan, balloon, self.forecast, self.atmosphere, self.time_delta, self.stride)
         #if current_plan_cost < best_random_cost:
@@ -434,7 +448,7 @@ class MPC5Agent(agent.Agent):
         
         if self.state is None:
             self.state = self.mppi.init(seed=0)
-        self.state = self.mppi.update(self.state)
+        self.state = self.mppi_update(self.state, (self.balloon, self.forecast))
         _test_cost = jax_plan_cost(
                     jnp.squeeze(self.state.nominal_actions), 
                     self.balloon, 
