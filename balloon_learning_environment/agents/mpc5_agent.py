@@ -149,15 +149,43 @@ class MPPIState(NamedTuple):
     nominal_actions: jnp.ndarray  # (horizon, action_dim)
     rng: jax.Array                # PRNG key
 
+def find_adaptive_temperature(costs, target_ess_pct, num_envs, low=0.001, high=1000.0, steps=15):
+    target_ess = target_ess_pct * num_envs
+    costs_min = jnp.min(costs)
+    shifted_costs = costs - costs_min
+
+    def get_ess(temp):
+        # Calculate ESS for a given temperature
+        logits = -1.0 / (temp + 1e-6) * shifted_costs
+        weights = jax.nn.softmax(logits)
+        return 1.0 / jnp.sum(jnp.square(weights))
+
+    def bisection_step(bounds, _):
+        low, high = bounds
+        mid = (low + high) / 2.0
+        ess = get_ess(mid)
+        # If ESS is too low, we need a higher temperature (softer weights)
+        new_bounds = jax.lax.cond(
+            ess < target_ess,
+            lambda: (mid, high), # Increase temp
+            lambda: (low, mid)  # Decrease temp
+        )
+        return new_bounds, None
+
+    # Run fixed-step bisection (15 steps is usually enough for high precision)
+    final_bounds, _ = jax.lax.scan(bisection_step, (low, high), jnp.arange(steps))
+    
+    return (final_bounds[0] + final_bounds[1]) / 2.0
+
 @register_pytree_node_class
 class MPPI:
     def __init__(
             self, horizon: int, num_envs: int, action_dim: int, 
-            action_std: Union[float, jax.Array], temperature: Union[float, jax.Array], sample_indices: Tuple[int], sample_fn: Callable
+            action_std: Union[float, jax.Array], target_pct: Union[float, jax.Array], sample_indices: Tuple[int], sample_fn: Callable
     ):
         # Hyperparams
         self.action_std = action_std
-        self.temperature = temperature
+        self.target_pct = target_pct
 
         # Configuration (Static)
         self.horizon = horizon
@@ -182,15 +210,19 @@ class MPPI:
         costs = self.sample_fn(explore_actions, args) # shape: (num_envs, )
         costs /= self.horizon
 
+        # 2.5 
+        target_pct = self.target_pct
+        temperature = find_adaptive_temperature(costs, target_pct, self.num_envs)
+
         # 3. Reweight (The MPPI Update)
-        weights = jax.nn.softmax(-1.0 / self.temperature * (costs - jnp.min(costs)))
+        weights = jax.nn.softmax(-1.0 / temperature * (costs - jnp.min(costs)))
         
         # Weighted average across the num_envs dimension
         update_delta = jnp.sum(weights[:, None, None] * delta_actions, axis=0)
         new_nominal_actions = state.nominal_actions + update_delta
 
         ess = 1.0 / jnp.sum(jnp.square(weights))
-        jax.debug.print("ESS: {ess} / {ne} (Temp: {t})",ess=ess,ne=self.num_envs,t=self.temperature)
+        jax.debug.print("ESS: {ess} / {ne} (Temp: {t})",ess=ess,ne=self.num_envs,t=temperature)
 
         new_state = MPPIState(nominal_actions=new_nominal_actions, rng=next_rng)        
         return new_state
@@ -222,15 +254,15 @@ class MPPI:
         return state._replace(nominal_actions=new_nominal_actions)
 
     def tree_flatten(self):
-        children = (self.action_std, self.temperature) 
+        children = (self.action_std, self.target_pct) 
         aux_data = (self.horizon, self.num_envs, self.action_dim, self.sample_indices, self.sample_fn)
         return children, aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        action_std, temperature = children
+        action_std, target_pct = children
         horizon, num_envs, action_dim, sample_indices, sample_fn = aux_data
-        return MPPI(horizon, num_envs, action_dim, action_std, temperature, sample_indices, sample_fn)
+        return MPPI(horizon, num_envs, action_dim, action_std, target_pct, sample_indices, sample_fn)
 
 _MODEL_FIDELITIES: dict[str, JaxBalloonDynamicsParams] = {
     # Temperature, Volume, Battery, ACS
@@ -488,7 +520,8 @@ class MPC5Agent(agent.Agent):
         self.i = 0
         self.steps_within_radius = 0
         self.balloon = None
-        self.plan = None
+        self.state = None
+        self.mppi = None
         # self.plan_steps = 960 + 23
 
         self._time_taken = 0.0
