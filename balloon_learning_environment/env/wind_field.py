@@ -35,9 +35,6 @@ from atmosnav import *
 
 from absl import flags
 
-WITH_WIND_NOISE = True # True is the default
-WITH_NOISE_SCALE = 1.0 # 1.0 is the default
-print('Using wind noise:', WITH_WIND_NOISE, 'with scale', WITH_NOISE_SCALE)
 
 # WindVector contains the following elements:
 #   u: Wind magnitude along the x axis in meters per second.
@@ -68,8 +65,11 @@ class JaxWindField(JaxTree):
 class WindField(abc.ABC):
   """Abstract class for point-based lookups in a wind field."""
 
+  WIND_NOISE_SCALE = 1.0 # 1.0 is the default
+
   def __init__(self):
     self._noise_model = SimplexWindNoise()
+    print('Using wind noise: with scale', WindField.WIND_NOISE_SCALE)
 
   def to_jax_wind_field(self):
     raise NotImplementedError('no conversion to jax wind field')
@@ -157,12 +157,12 @@ class WindField(abc.ABC):
     """
     forecast = self.get_forecast(x, y, pressure, elapsed_time)
 
-    if WITH_WIND_NOISE:
+    if WindField.WIND_NOISE_SCALE:
       noise: WindVector = self._noise_model.get_wind_noise(x, y, pressure, elapsed_time)
       
       noise = WindVector(
-                units.Velocity(mps=noise.u.mps * WITH_NOISE_SCALE),
-                units.Velocity(mps=noise.v.mps * WITH_NOISE_SCALE))
+                units.Velocity(mps=noise.u.mps * WindField.WIND_NOISE_SCALE),
+                units.Velocity(mps=noise.v.mps * WindField.WIND_NOISE_SCALE))
 
       return forecast.add(noise)
     else:
