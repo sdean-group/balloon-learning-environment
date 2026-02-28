@@ -26,6 +26,7 @@ from typing import Sequence
 from absl import app
 from absl import flags
 from balloon_learning_environment.env import balloon_env  # pylint: disable=unused-import
+from balloon_learning_environment.env import wind_field
 # from balloon_learning_environment.env.rendering import matplotlib_renderer
 from balloon_learning_environment.env import features
 from balloon_learning_environment.eval import eval_lib
@@ -86,6 +87,8 @@ flags.DEFINE_integer('hp_replan_steps', 24, 'Defines the replan steps hyperparam
 flags.DEFINE_string('hp_model_fidelity', 'high', 'Defines the model fidelity hyperparameter (high, lower, low, lowest)')
 flags.DEFINE_integer('hp_num_initializations', 100, 'Defines the number of initializations hyperparameter')
 flags.DEFINE_string('hp_wind_model', 'grid', 'Defines the wind model hyperparameter')
+flags.DEFINE_float('hp_wind_noise_scale', 1.0, 'Defines the wind noise scale')
+
 FLAGS = flags.FLAGS
 
 
@@ -133,6 +136,8 @@ def main(argv: Sequence[str]) -> None:
   run_helpers.bind_gin_variables(FLAGS.agent,
                                  FLAGS.agent_gin_file,
                                  FLAGS.gin_bindings)
+
+  wind_field.WindField.WIND_NOISE_SCALE = FLAGS.hp_wind_noise_scale
 
   # renderer = None
   # if FLAGS.renderer is not None:
